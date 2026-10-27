@@ -1,0 +1,409 @@
+/* Hermes Buddy bezel. OWNER: platform+bezel agent.
+   The window is the device: an M5StickC Plus from the front, 330x640 portrait
+   (640x330 when body.landscape turns it on its side: clockwise for display rotation 1,
+   counter-clockwise with body.ccw for rotation 3 — see rotateToRgba in hw/tft.ts).
+   It is a physical object, not a themed page, so it has no light/dark variants. */
+
+:root {
+  /* Dark purple shell. Every body tint below derives from these, so a recolor is one block. */
+  --shell-hi: #5a3a8a;
+  --shell: #3d2363;
+  --shell-lo: #28153f;
+  --shell-edge: #170b26;
+  --shade: 22, 9, 40; /* rgb triplet for the body's shadow tints: rgba(var(--shade), a) */
+  --shade-deep: 14, 5, 28;
+  --key-hi: #573683; /* A pad and side keys */
+  --key-lo: #3a2160;
+  --key-down-hi: #462a6c;
+  --key-down-lo: #2d1a4b;
+  --glass: #060607;
+  --glass-rim: #1b1b1f;
+  --pad-ink: rgba(14, 6, 26, 0.6);
+  --led-off: #4a0d08; /* the LED stays a red LED */
+  --led-on: #ff3b2a;
+  --backdrop: #110a1a;
+  --ink: #f1ecf7;
+  --ink-dim: #b2a6c2;
+  --panel: #19151f;
+  --panel-line: #3f3352;
+  --accent: #a77be0;
+  --accent-hover: #bb95ee;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--backdrop);
+  color: var(--ink);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── frame: the window-sized box; swaps dimensions when the device turns sideways ── */
+
+.frame {
+  position: relative;
+  flex: none;
+  width: 330px;
+  height: 640px;
+}
+
+body.landscape .frame {
+  width: 640px;
+  height: 330px;
+}
+
+/* ── device body ── */
+
+.device {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 330px;
+  height: 640px;
+  border-radius: 24px;
+  background:
+    radial-gradient(120% 55% at 30% 0%, rgba(255, 255, 255, 0.16), transparent 60%),
+    linear-gradient(160deg, var(--shell-hi) 0%, var(--shell) 45%, var(--shell-lo) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    inset 0 3px 7px rgba(255, 255, 255, 0.3),
+    inset 0 -14px 26px rgba(var(--shade), 0.38),
+    inset 0 0 0 5px rgba(0, 0, 0, 0.05);
+}
+
+/* Turn the whole device on its side inside the 640x330 frame. Display rotation 1 means
+   the stick was turned 90deg clockwise (tft.ts counter-rotates the image to match), so
+   the bezel turns clockwise; rotation 3 (body.ccw) turns it the other way. */
+body.landscape .device {
+  transform-origin: 0 0;
+  transform: translateX(640px) rotate(90deg);
+}
+body.landscape.ccw .device {
+  transform: translateY(330px) rotate(-90deg);
+}
+
+/* ── LED ── */
+
+.led {
+  position: absolute;
+  top: 11px;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #7a1a10, var(--led-off) 70%);
+  box-shadow:
+    inset 0 1px 1px rgba(0, 0, 0, 0.6),
+    0 0 0 1.5px rgba(var(--shade), 0.55),
+    0 1px 0 1.5px rgba(255, 255, 255, 0.18);
+}
+
+.led.lit {
+  background: radial-gradient(circle at 35% 30%, #ffd0c8, var(--led-on) 55%);
+  box-shadow:
+    0 0 0 1.5px rgba(var(--shade), 0.55),
+    0 0 8px 3px rgba(255, 59, 42, 0.85),
+    0 0 18px 6px rgba(255, 59, 42, 0.45);
+}
+
+/* ── glass + screen ── */
+
+.glass {
+  position: absolute;
+  left: 20px;
+  top: 30px;
+  width: 290px;
+  height: 500px;
+  padding: 10px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #0b0b0d, var(--glass));
+  box-shadow:
+    inset 0 0 0 2px var(--glass-rim),
+    0 1px 0 rgba(255, 255, 255, 0.28),
+    0 -1px 0 rgba(var(--shade-deep), 0.5);
+}
+
+/* A faint reflection; pointer-events none so drags still land on the glass. */
+.glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(118deg, rgba(255, 255, 255, 0.05) 0%, transparent 38%);
+}
+
+#screen {
+  display: block;
+  width: 270px;
+  height: 480px;
+  background: #000;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ── buttons ── */
+
+button {
+  font: inherit;
+  color: inherit;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  outline: none;
+  touch-action: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* A: the big round QV pad below the screen. */
+.face {
+  position: absolute;
+  left: 123px;
+  top: 543px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.28), transparent 55%),
+    linear-gradient(160deg, var(--key-hi), var(--key-lo));
+  box-shadow:
+    0 0 0 3px rgba(var(--shade), 0.32),
+    0 0 0 4px rgba(255, 255, 255, 0.14),
+    0 4px 7px rgba(var(--shade-deep), 0.5),
+    inset 0 2px 3px rgba(255, 255, 255, 0.4),
+    inset 0 -4px 7px rgba(var(--shade), 0.35);
+  transition: transform 40ms, box-shadow 40ms, background 40ms;
+}
+
+.face .logo {
+  display: block;
+  font: 800 28px/84px "Helvetica Neue", Arial, system-ui, sans-serif;
+  letter-spacing: -1.5px;
+  text-align: center;
+  color: var(--pad-ink);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+}
+
+.face.down {
+  transform: translateY(2px) scale(0.975);
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.1), transparent 55%),
+    linear-gradient(160deg, var(--key-down-hi), var(--key-down-lo));
+  box-shadow:
+    0 0 0 3px rgba(var(--shade), 0.4),
+    0 0 0 4px rgba(255, 255, 255, 0.1),
+    0 1px 2px rgba(var(--shade-deep), 0.5),
+    inset 0 3px 8px rgba(var(--shade-deep), 0.55);
+}
+
+/* B (right edge) and Power (left edge): the side keys of the stick. */
+.side {
+  position: absolute;
+  top: 168px;
+  width: 13px;
+  height: 66px;
+  background: linear-gradient(90deg, var(--key-hi), var(--key-lo));
+  box-shadow:
+    0 0 0 1px rgba(var(--shade), 0.45),
+    inset 0 1px 1px rgba(255, 255, 255, 0.4),
+    inset 0 -2px 3px rgba(var(--shade), 0.35);
+  transition: transform 40ms, box-shadow 40ms;
+}
+
+/* Generous hit area; the visible key is thin. */
+.side::before {
+  content: "";
+  position: absolute;
+  inset: -12px -5px;
+}
+
+.side-right {
+  right: 3px;
+  border-radius: 7px 3px 3px 7px;
+}
+
+.side-left {
+  left: 3px;
+  border-radius: 3px 7px 7px 3px;
+  background: linear-gradient(270deg, var(--key-hi), var(--key-lo));
+}
+
+.side-right.down {
+  transform: translateX(2px);
+}
+
+.side-left.down {
+  transform: translateX(-2px);
+}
+
+.side.down {
+  box-shadow:
+    0 0 0 1px rgba(var(--shade), 0.55),
+    inset 0 2px 5px rgba(var(--shade-deep), 0.6);
+  filter: brightness(0.9);
+}
+
+/* ── db-path overlay (platform.openDbSettings) ── */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(10, 6, 16, 0.84);
+}
+
+.overlay-card {
+  width: 100%;
+  max-width: 300px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.overlay-card h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.overlay-card p {
+  margin: 0 0 10px;
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+
+.overlay-card p.hint {
+  margin: 6px 0 12px;
+  font-size: 11px;
+}
+
+.overlay-card input {
+  display: block;
+  width: 100%;
+  padding: 8px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--panel-line);
+  background: #110e16;
+  color: var(--ink);
+  font: 12px/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+.overlay-card input::placeholder {
+  color: #7a6d8c;
+}
+
+.overlay-card input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.overlay-row {
+  display: flex;
+  gap: 6px;
+}
+
+.overlay-row button {
+  flex: 1;
+  padding: 8px 4px;
+  border-radius: 7px;
+  border: 1px solid var(--panel-line);
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  touch-action: manipulation;
+}
+
+.overlay-row button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.overlay-row button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.overlay-row button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #140a22;
+  font-weight: 650;
+}
+
+.overlay-row button.primary:hover {
+  background: var(--accent-hover);
+}
+
+/* ── toast (platform.showToast): a short notice over the glass, never in the way of the buttons ── */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 124px;
+  z-index: 20;
+  width: max-content;
+  max-width: calc(100% - 56px);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  border-left: 3px solid var(--accent);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  overflow-wrap: anywhere;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: toast-in 0.18s ease-out;
+}
+
+body.landscape .toast {
+  bottom: 16px;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}

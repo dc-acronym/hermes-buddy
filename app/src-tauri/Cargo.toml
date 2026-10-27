@@ -1,0 +1,25 @@
+[package]
+name = "hermes-buddy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hermes Buddy — desktop recreation of the claude-desktop-buddy stick, watching a local Hermes Agent"
+
+[lib]
+name = "hermes_buddy_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+dirs = "6"
+hermes-watch = { path = "../../crates/hermes-watch" }
+tauri-plugin-single-instance = "2"
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,614 @@
+// Platform services: time, sound, LED, persistence, window control, Tauri bridge.
+// OWNER: platform+bezel agent. Frozen contract — every function must work in a
+// plain browser (no Tauri) with sensible fallbacks, so the UI can be screenshot-tested.
+//
+// Tauri command / event names are exactly the ones in PLAN.md ("Rust ↔ UI contract").
+
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
+import type { CharacterPack } from "../data/types";
+import { inputReleaseKeys } from "./input";
+import type { Display } from "./tft";
+
+export const isTauri: boolean =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+const t0 = typeof performance !== "undefined" ? performance.now() : 0;
+
+/** Milliseconds since app start (Arduino millis()). Tests may override via setMillisSource. */
+export function millis(): number {
+  return Math.floor(_millisSource());
+}
+let _millisSource: () => number = () => performance.now() - t0;
+export function setMillisSource(fn: () => number): void {
+  _millisSource = fn;
+}
+
+const hasDom = typeof window !== "undefined" && typeof document !== "undefined";
+
+function warn(what: string, err: unknown): void {
+  console.warn(`[platform] ${what}:`, err);
+}
+
+// ── Browser fallbacks: localStorage under "hermes-buddy:<name>" ──────────────
+
+const LS_PREFIX = "hermes-buddy:";
+
+function lsGet(name: string): unknown {
+  try {
+    const raw = localStorage.getItem(LS_PREFIX + name);
+    return raw === null ? null : JSON.parse(raw);
+  } catch {
+    // Something is stored but unreadable: saveJson must not overwrite it with defaults.
+    noteLoadFailed(name);
+    return null;
+  }
+}
+
+function lsSet(name: string, value: unknown): void {
+  try {
+    localStorage.setItem(LS_PREFIX + name, JSON.stringify(value));
+  } catch (e) {
+    warn(`localStorage ${name}`, e);
+  }
+}
+
+function lsRemove(name: string): void {
+  try {
+    localStorage.removeItem(LS_PREFIX + name);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+// ── Sound ───────────────────────────────────────────────────────────────────
+
+const BEEP_GAIN = 0.05;
+
+let audioCtx: AudioContext | null = null;
+let audioUnlocked = false;
+let curOsc: OscillatorNode | null = null;
+
+function ensureAudio(): AudioContext | null {
+  if (audioCtx) return audioCtx;
+  if (!audioUnlocked || !hasDom) return null; // autoplay policy: wait for a user gesture
+  const w = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+  const Ctor = w.AudioContext ?? w.webkitAudioContext;
+  if (!Ctor) return null;
+  try {
+    audioCtx = new Ctor();
+  } catch (e) {
+    warn("AudioContext", e);
+  }
+  return audioCtx;
+}
+
+function unlockAudio(): void {
+  audioUnlocked = true;
+  const ctx = ensureAudio();
+  if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
+}
+
+/** Square-wave tone like M5.Beep.tone(freq, dur). No-op if audio unavailable. */
+export function beep(freq: number, durMs: number): void {
+  if (!(freq > 0) || !(durMs > 0)) return;
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  try {
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    // M5.Beep.tone() preempts whatever is sounding.
+    if (curOsc) {
+      try {
+        curOsc.stop();
+      } catch {
+        /* already stopped */
+      }
+    }
+    const t = ctx.currentTime;
+    const dur = durMs / 1000;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.value = freq;
+    // Short ramps so the edges don't click.
+    const ramp = Math.min(0.004, dur / 4);
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(BEEP_GAIN, t + ramp);
+    gain.gain.setValueAtTime(BEEP_GAIN, t + dur - ramp);
+    gain.gain.linearRampToValueAtTime(0, t + dur);
+    osc.connect(gain).connect(ctx.destination);
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+      if (curOsc === osc) curOsc = null;
+    };
+    curOsc = osc;
+    osc.start(t);
+    osc.stop(t + dur + 0.01);
+  } catch (e) {
+    warn("beep", e);
+  }
+}
+
+// ── LED ─────────────────────────────────────────────────────────────────────
+
+/** Red LED on the bezel. */
+export function setLed(on: boolean): void {
+  if (!hasDom) return;
+  document.getElementById("led")?.classList.toggle("lit", on);
+}
+
+// ── Persistence ─────────────────────────────────────────────────────────────
+
+// Names whose read errored (not "not found", which loads as null). Their file may still
+// hold real data, so saveJson leaves them alone for the session instead of writing the
+// fallback over it. Value: whether the refusal has been warned about yet.
+const loadFailed = new Map<string, boolean>();
+
+function noteLoadFailed(name: string): void {
+  if (!loadFailed.has(name)) loadFailed.set(name, false);
+}
+
+/**
+ * Persist a small JSON blob (Tauri: app config dir; browser: localStorage).
+ * A stored plain object is shallow-merged over `fallback`, so settings added in a
+ * later version pick up their defaults instead of coming back undefined.
+ */
+export async function loadJson<T>(name: string, fallback: T): Promise<T> {
+  let stored: unknown = null;
+  if (isTauri) {
+    try {
+      stored = await invoke<unknown>("load_json", { name });
+    } catch (e) {
+      warn(`load_json ${name}`, e);
+      noteLoadFailed(name);
+    }
+  } else {
+    stored = lsGet(name);
+  }
+  if (stored === null || stored === undefined) return fallback;
+  if (isPlainObject(fallback) && isPlainObject(stored)) return { ...fallback, ...stored } as T;
+  return stored as T;
+}
+
+// Writes for one name are serialised and coalesced: while one is in flight, only the
+// newest value waits, so rapid saves can never land out of order.
+const saveBusy = new Set<string>();
+const saveNext = new Map<string, unknown>();
+
+export function saveJson(name: string, value: unknown): void {
+  if (loadFailed.has(name)) {
+    if (!loadFailed.get(name)) {
+      loadFailed.set(name, true);
+      warn(`not saving ${name}`, "its last read failed, so the stored copy is left untouched");
+    }
+    return;
+  }
+  if (!isTauri) {
+    lsSet(name, value);
+    return;
+  }
+  if (saveBusy.has(name)) {
+    saveNext.set(name, value);
+    return;
+  }
+  saveBusy.add(name);
+  void (async () => {
+    let next: unknown = value;
+    let have = true;
+    while (have) {
+      try {
+        await invoke("save_json", { name, value: next });
+      } catch (e) {
+        warn(`save_json ${name}`, e);
+      }
+      have = saveNext.has(name);
+      if (have) {
+        next = saveNext.get(name);
+        saveNext.delete(name);
+      }
+    }
+    saveBusy.delete(name);
+  })();
+}
+
+// ── Window control (no-ops in the browser) ──────────────────────────────────
+
+export function setAlwaysOnTop(on: boolean): void {
+  if (!isTauri) return;
+  invoke("set_always_on_top", { on }).catch((e) => warn("set_always_on_top", e));
+}
+export function hideWindow(): void {
+  if (!isTauri) return;
+  invoke("hide_window").catch((e) => warn("hide_window", e));
+}
+export function quitApp(): void {
+  if (!isTauri) return;
+  invoke("quit_app").catch((e) => warn("quit_app", e));
+}
+
+const PORTRAIT = { w: 330, h: 640 };
+let landscape = false;
+
+/** Lay the bezel on its side (see attachRotation for direction) and resize the Tauri window to match. */
+export function setLandscape(on: boolean): void {
+  if (on === landscape) return;
+  landscape = on;
+  if (hasDom) document.body.classList.toggle("landscape", on);
+  if (!isTauri) return;
+  const size = on ? new LogicalSize(PORTRAIT.h, PORTRAIT.w) : new LogicalSize(PORTRAIT.w, PORTRAIT.h);
+  try {
+    getCurrentWindow()
+      .setSize(size)
+      .catch((e) => warn("setSize", e));
+  } catch (e) {
+    warn("getCurrentWindow", e);
+  }
+}
+
+export function isLandscape(): boolean {
+  return landscape;
+}
+
+/**
+ * Wire the display's rotation callback to the bezel: an odd rotation (landscape clock)
+ * turns the device 90° CCW and swaps the window to 640x330. main.ts calls this if it exists.
+ */
+export function attachRotation(display: Display): void {
+  display.onRotationChange = (rotation: number) => {
+    if (hasDom) document.body.classList.toggle("ccw", (rotation & 3) === 3);
+    setLandscape((rotation & 1) === 1);
+  };
+}
+
+// ── Hermes db path config ───────────────────────────────────────────────────
+
+const DEFAULT_DB_PATH = "~/.hermes/state.db";
+
+export async function getConfig(): Promise<{ dbPath: string | null; dbPathResolved: string }> {
+  if (isTauri) {
+    try {
+      return await invoke<{ dbPath: string | null; dbPathResolved: string }>("get_config");
+    } catch (e) {
+      warn("get_config", e);
+    }
+  } else {
+    const stored = lsGet("dbPath");
+    if (typeof stored === "string" && stored) return { dbPath: stored, dbPathResolved: stored };
+  }
+  return { dbPath: null, dbPathResolved: DEFAULT_DB_PATH };
+}
+
+export async function setDbPath(path: string | null): Promise<void> {
+  if (isTauri) {
+    try {
+      await invoke("set_db_path", { path });
+    } catch (e) {
+      warn("set_db_path", e);
+    }
+    return;
+  }
+  if (path) lsSet("dbPath", path);
+  else lsRemove("dbPath");
+}
+
+export function pollNow(): void {
+  if (!isTauri) return;
+  invoke("poll_now").catch((e) => warn("poll_now", e));
+}
+
+// ── db-path overlay (Settings → hermes) ─────────────────────────────────────
+
+let overlayPending = false;
+
+/** Opens the HTML overlay for editing the Hermes db path (Settings → hermes). */
+export function openDbSettings(): void {
+  if (!hasDom || overlayPending || document.getElementById("dbOverlay")) return;
+  overlayPending = true;
+  getConfig()
+    .then((cfg) => {
+      if (!document.getElementById("dbOverlay")) buildDbOverlay(cfg.dbPath, cfg.dbPathResolved);
+    })
+    .catch((e) => warn("openDbSettings", e))
+    .finally(() => {
+      overlayPending = false;
+    });
+}
+
+function buildDbOverlay(current: string | null, resolved: string): void {
+  const root = document.createElement("div");
+  root.id = "dbOverlay";
+  root.className = "overlay";
+  root.setAttribute("data-tauri-drag-region", "");
+  root.setAttribute("role", "dialog");
+  root.setAttribute("aria-modal", "true");
+  root.setAttribute("aria-label", "Hermes database");
+
+  const card = document.createElement("div");
+  card.className = "overlay-card";
+
+  const title = document.createElement("h2");
+  title.textContent = "Hermes database";
+
+  const blurb = document.createElement("p");
+  blurb.textContent = "Where to find Hermes's state.db. It is only ever opened read-only.";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.spellcheck = false;
+  input.autocomplete = "off";
+  input.placeholder = resolved;
+  input.value = current ?? "";
+  input.setAttribute("aria-label", "Path to state.db");
+
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = "Leave empty to use the default ($HERMES_HOME or ~/.hermes).";
+
+  const row = document.createElement("div");
+  row.className = "overlay-row";
+  const mk = (label: string, cls: string): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.className = cls;
+    return b;
+  };
+  const save = mk("Save", "primary");
+  const useDefault = mk("Use default", "");
+  const cancel = mk("Cancel", "");
+  row.append(save, useDefault, cancel);
+
+  card.append(title, blurb, input, hint, row);
+  root.append(card);
+
+  const close = (): void => {
+    root.remove();
+    document.body.classList.remove("modal-open");
+  };
+  const commit = (path: string | null): void => {
+    close();
+    void setDbPath(path);
+  };
+
+  save.addEventListener("click", () => commit(input.value.trim() || null));
+  useDefault.addEventListener("click", () => commit(null));
+  cancel.addEventListener("click", close);
+  root.addEventListener("keydown", (e) => {
+    e.stopPropagation(); // keys never reach the button handler while the overlay is up
+    if (e.key === "Enter" || e.key === "Escape") {
+      e.preventDefault();
+      if (e.repeat) return; // the B press that opened this may still be held: don't auto-commit
+      if (e.key === "Enter") commit(input.value.trim() || null);
+      else close();
+    }
+  });
+  // keyup is not swallowed: the button handler only ever uses it to let go of a held key.
+
+  document.body.append(root);
+  document.body.classList.add("modal-open");
+  inputReleaseKeys(); // whatever opened this (the B press) won't see its keyup in here
+  input.focus();
+  input.select();
+}
+
+// ── Toast ───────────────────────────────────────────────────────────────────
+
+const TOAST_MS = 4000;
+const TOAST_MAX_CHARS = 120;
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Small self-dismissing notice over the bezel. One at a time: a new one replaces the old. */
+export function showToast(text: string): void {
+  if (!hasDom) return;
+  if (toastTimer !== null) clearTimeout(toastTimer);
+  document.getElementById("toast")?.remove();
+  const el = document.createElement("div");
+  el.id = "toast";
+  el.className = "toast";
+  el.setAttribute("role", "status");
+  el.textContent = text.length > TOAST_MAX_CHARS ? `${text.slice(0, TOAST_MAX_CHARS - 1)}…` : text;
+  document.body.append(el);
+  toastTimer = setTimeout(() => {
+    el.remove();
+    toastTimer = null;
+  }, TOAST_MS);
+}
+
+// ── GIF character packs ─────────────────────────────────────────────────────
+
+export async function getCharacter(): Promise<CharacterPack | null> {
+  if (isTauri) {
+    try {
+      return await invoke<CharacterPack | null>("get_character");
+    } catch (e) {
+      warn("get_character", e);
+      return null;
+    }
+  }
+  // Browser: a pack JSON stored under "hermes-buddy:character" (handy for screenshot tests).
+  const stored = lsGet("character");
+  return isPlainObject(stored) && typeof stored.name === "string" ? (stored as unknown as CharacterPack) : null;
+}
+
+export async function deleteCharacter(): Promise<void> {
+  if (!isTauri) {
+    lsRemove("character");
+    return;
+  }
+  try {
+    await invoke("delete_character");
+  } catch (e) {
+    warn("delete_character", e);
+  }
+}
+
+export async function factoryReset(): Promise<void> {
+  if (isTauri) {
+    try {
+      await invoke("factory_reset");
+      loadFailed.clear(); // the files are gone: nothing left to protect
+    } catch (e) {
+      warn("factory_reset", e);
+    }
+    return;
+  }
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(LS_PREFIX) && k !== LS_PREFIX + "dbPath") keys.push(k);
+    }
+    for (const k of keys) localStorage.removeItem(k);
+    loadFailed.clear();
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+// ── Events ──────────────────────────────────────────────────────────────────
+
+function subscribe<T>(event: string, cb: (payload: T) => void): () => void {
+  if (!isTauri) return () => {};
+  let off: (() => void) | null = null;
+  let dead = false;
+  listen<T>(event, (e) => {
+    if (!dead) cb(e.payload);
+  })
+    .then((un) => {
+      if (dead) un();
+      else off = un;
+    })
+    .catch((e) => warn(`listen ${event}`, e));
+  return () => {
+    dead = true;
+    off?.();
+    off = null;
+  };
+}
+
+function isTyping(el: unknown): boolean {
+  const h = el as HTMLElement | null;
+  if (!h || typeof h.tagName !== "string") return false;
+  return h.tagName === "INPUT" || h.tagName === "TEXTAREA" || h.tagName === "SELECT" || h.isContentEditable;
+}
+
+/** Browser-only developer shortcut: Shift+<key> fires cb. */
+function devKey(code: string, cb: () => void): () => void {
+  if (!hasDom) return () => {};
+  const h = (e: KeyboardEvent): void => {
+    if (!e.shiftKey || e.code !== code || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (document.body.classList.contains("modal-open") || isTyping(e.target) || isTyping(document.activeElement)) return;
+    cb();
+  };
+  window.addEventListener("keydown", h);
+  return () => window.removeEventListener("keydown", h);
+}
+
+/** Window shaken ("buddy://shake"). Browser: Shift+S. */
+export function onShake(cb: () => void): () => void {
+  return isTauri ? subscribe<unknown>("buddy://shake", () => cb()) : devKey("KeyS", cb);
+}
+
+const NAP_POLL_MS = 1500;
+
+/**
+ * Nap = window minimized/hidden (true) or restored (false). Fires only on change.
+ * Under Tauri the page-visibility event isn't reliable for minimize/hide-to-tray in
+ * every webview (WKWebView, WebView2, WebKitGTK), so the window state is also polled.
+ */
+export function onNapChange(cb: (napping: boolean) => void): () => void {
+  if (!hasDom) return () => {};
+  let napping = document.visibilityState === "hidden";
+  let winHidden = false;
+  const update = (): void => {
+    const now = document.visibilityState === "hidden" || winHidden;
+    if (now !== napping) {
+      napping = now;
+      cb(now);
+    }
+  };
+  document.addEventListener("visibilitychange", update);
+  let timer: ReturnType<typeof setInterval> | null = null;
+  if (isTauri) {
+    timer = setInterval(() => {
+      const w = getCurrentWindow();
+      Promise.all([w.isMinimized(), w.isVisible()])
+        .then(([min, vis]) => {
+          winHidden = min || !vis;
+          update();
+        })
+        .catch(() => {});
+    }, NAP_POLL_MS);
+  }
+  return () => {
+    document.removeEventListener("visibilitychange", update);
+    if (timer) clearInterval(timer);
+  };
+}
+
+/** Tray "Next pet" ("buddy://next-pet"). Browser: Shift+N. */
+export function onNextPet(cb: () => void): () => void {
+  return isTauri ? subscribe<unknown>("buddy://next-pet", () => cb()) : devKey("KeyN", cb);
+}
+
+/** A character pack was installed by drag-and-drop ("buddy://character-installed"). */
+export function onCharacterInstalled(cb: (pack: CharacterPack) => void): () => void {
+  return subscribe<CharacterPack>("buddy://character-installed", cb);
+}
+
+/** A dropped pack folder was rejected ("buddy://character-error"); the payload is a short reason. */
+export function onCharacterError(cb: (reason: string) => void): () => void {
+  return subscribe<unknown>("buddy://character-error", (p) =>
+    cb(typeof p === "string" && p.trim() ? p.trim() : "unknown error"),
+  );
+}
+
+// ── Device info ─────────────────────────────────────────────────────────────
+
+let appVersion = "0.1.0";
+if (isTauri) {
+  import("@tauri-apps/api/app")
+    .then((m) => m.getVersion())
+    .then((v) => {
+      if (v) appVersion = v;
+    })
+    .catch(() => {});
+}
+
+/** App/OS info for the DEVICE info page. */
+export function deviceInfo(): { app: string; version: string; os: string } {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  let os = isTauri ? "desktop" : "browser";
+  if (/Windows/i.test(ua)) os = "Windows";
+  else if (/Mac OS X|Macintosh|macOS/i.test(ua)) os = "macOS";
+  else if (/Linux|X11/i.test(ua)) os = "Linux";
+  return { app: "Hermes Buddy", version: appVersion, os };
+}
+
+// Rust rejects a bad pack drop on its own thread; without this it would fail silently.
+if (isTauri && hasDom) onCharacterError((reason) => showToast(`Pet pack rejected: ${reason}`));
+
+// ── Global guards (browser + Tauri) ─────────────────────────────────────────
+
+if (hasDom) {
+  // WebAudio may only start after a user gesture.
+  for (const type of ["pointerdown", "pointerup", "keydown"]) {
+    window.addEventListener(type, unlockAudio, { capture: true, passive: true });
+  }
+  // The device is not a web page: no context menu, and a double-click on the body must
+  // not reach Tauri's drag script (it toggles maximize on mousedown, or on mouseup on macOS).
+  window.addEventListener("contextmenu", (e) => {
+    if (!(e.target as HTMLElement | null)?.closest?.("input")) e.preventDefault();
+  });
+  const swallowDoubleClick = (e: MouseEvent): void => {
+    if (e.detail >= 2 && !(e.target as HTMLElement | null)?.closest?.("button, input")) e.stopPropagation();
+  };
+  window.addEventListener("mousedown", swallowDoubleClick, { capture: true });
+  window.addEventListener("mouseup", swallowDoubleClick, { capture: true });
+}

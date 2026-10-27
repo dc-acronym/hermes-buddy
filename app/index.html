@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Hermes Buddy</title>
+    <!-- Painted before the stylesheet arrives so the frameless window never flashes white. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #1b0b07;
+      }
+    </style>
+  </head>
+  <!--
+    The window IS the device: an M5StickC Plus seen from the front (330x640, portrait).
+    - #screen is the 135x240 TFT at 2x (270x480). main.ts owns it; keep the id.
+    - #btnA (front QV pad), #btnB (right edge), #btnPwr (left edge) are wired by hw/input.ts.
+    - #led is toggled by hw/platform.ts (class "lit").
+    - data-tauri-drag-region sits on every non-interactive element (Tauri only drags
+      from the element carrying the attribute); never on the buttons.
+    - body.landscape rotates #device 90 degrees counter-clockwise (platform.attachRotation).
+  -->
+  <body data-tauri-drag-region>
+    <div id="stage" data-tauri-drag-region>
+      <div id="frame" class="frame" data-tauri-drag-region>
+        <div id="device" class="device" data-tauri-drag-region>
+          <span id="led" class="led" data-tauri-drag-region></span>
+
+          <div class="glass" data-tauri-drag-region>
+            <canvas id="screen" width="270" height="480" data-tauri-drag-region></canvas>
+          </div>
+
+          <button id="btnPwr" class="side side-left" type="button" tabindex="-1" title="Power (P) &mdash; tap: screen off/on, hold: hide to tray" aria-label="Power"></button>
+          <button id="btnB" class="side side-right" type="button" tabindex="-1" title="B (Enter) &mdash; scroll / pet / confirm" aria-label="Button B"></button>
+          <button id="btnA" class="face" type="button" tabindex="-1" title="A (Space) &mdash; next screen, hold for menu (Esc)" aria-label="Button A"><span class="logo">QV</span></button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

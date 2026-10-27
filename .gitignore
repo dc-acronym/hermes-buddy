@@ -1,0 +1,6 @@
+node_modules/
+dist/
+target/
+app/src-tauri/gen/
+app/tests/out/
+*.log

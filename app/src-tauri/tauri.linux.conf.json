@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Hermes Buddy",
+        "width": 330,
+        "height": 640,
+        "resizable": true,
+        "decorations": false,
+        "maximizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": false,
+        "dragDropEnabled": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hermes Buddy gallery</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; background: #14161a; color: #cfd3da; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      body { padding: 16px 20px 40px; width: max-content; min-width: 100%; box-sizing: border-box; }
+      h1 { font-size: 18px; margin: 0 0 4px; color: #fff; }
+      h2 { font-size: 14px; margin: 0 0 2px; color: #ffd866; }
+      .note { margin: 0 0 8px; color: #7d8590; max-width: 120ch; }
+      #summary { margin: 0 0 14px; padding: 6px 10px; background: #1d2026; border: 1px solid #2a2f37; border-radius: 4px; }
+      #summary b.ok { color: #6fdc8c; } #summary b.err { color: #ff6b6b; } #summary b.blank { color: #ffb454; }
+      #importErrors { color: #ff6b6b; white-space: pre-wrap; margin: 0 0 10px; }
+      section { margin: 0 0 28px; padding: 10px 10px 12px; background: #181b20; border: 1px solid #23272e; border-radius: 6px; width: max-content; min-width: 600px; }
+      .grid { display: grid; gap: 10px 10px; align-items: start; }
+      figure.cell { margin: 0; }
+      figcaption { color: #9aa3ad; padding: 0 0 3px; max-width: 270px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      figure.cell.error figcaption { color: #ff6b6b; }
+      figure.cell.blank figcaption { color: #ffb454; }
+      figure.cell.static figcaption::after { content: " (no anim)"; color: #7d8590; }
+      canvas { display: block; image-rendering: pixelated; background: #000; outline: 1px solid #2c313a; }
+      figure.cell.error canvas { outline-color: #ff6b6b; }
+    </style>
+  </head>
+  <body>
+    <!-- OWNER: qa agent. Renders every species x state and every screen for screenshots (see tests/gallery/gallery.ts). -->
+    <h1>Hermes Buddy gallery</h1>
+    <div id="summary">rendering...</div>
+    <div id="importErrors"></div>
+    <main id="root"></main>
+    <script type="module" src="/tests/gallery/gallery.ts"></script>
+  </body>
+</html>
