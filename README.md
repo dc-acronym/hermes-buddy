@@ -114,8 +114,10 @@ make the repo public.
 | **Shake**: dizzy | drag the window back and forth fast | |
 | **Face-down nap** (energy refills) | minimize the window | |
 
-Drag the stick around by its body, and resize the window from any edge: the stick scales to fit,
-and the next launch puts it back where it was, at that size. The tray icon has Show/Hide, Next pet
+Drag the stick around by its body, and resize it from any edge: the stick scales with it, and
+when you let go the window trims itself to the stick's shape, so there's never a box around it
+(the window is see-through on macOS and Windows). The next launch puts it back where it was, at
+that size. The tray icon has Show/Hide, Next pet
 and Quit.
 
 **Menu → settings:** brightness · sound · **hermes** (point it at a different `state.db`) ·
@@ -182,7 +184,7 @@ A pack is checked before it replaces the current one (every GIF it names must ex
 cd app
 npm run dev                      # then open http://localhost:1420/?demo in a browser (no Tauri needed)
                                  # http://localhost:1420/gallery.html renders every pet, state and screen
-npm test                         # 600 vitest tests
+npm test                         # 603 vitest tests
 node tests/e2e/screenshots.mjs   # Playwright screenshots into tests/out/
 cd .. && cargo test --workspace  # 172 Rust tests (watcher replays real Hermes prompt rows)
 ```

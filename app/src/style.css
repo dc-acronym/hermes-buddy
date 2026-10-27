@@ -2,7 +2,9 @@
    The window is the device: an M5StickC Plus from the front, 330x640 portrait
    (640x330 when body.landscape turns it on its side: clockwise for display rotation 1,
    counter-clockwise with body.ccw for rotation 3 — see rotateToRgba in hw/tft.ts).
-   It is a physical object, not a themed page, so it has no light/dark variants. */
+   It is a physical object, not a themed page, so it has no light/dark variants.
+   In the app the page is transparent (the window is too, on macOS and Windows), so only the
+   stick shows; in a browser (html.web, set by platform.ts) it sits on the dark backdrop. */
 
 :root {
   /* Dark purple shell. Every body tint below derives from these, so a recolor is one block. */
@@ -40,7 +42,7 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--backdrop);
+  background: transparent;
   color: var(--ink);
   font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-user-select: none;
@@ -48,6 +50,11 @@ body {
   -webkit-user-drag: none;
   cursor: default;
   -webkit-tap-highlight-color: transparent;
+}
+
+html.web,
+html.web body {
+  background: var(--backdrop);
 }
 
 #stage {

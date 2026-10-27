@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window, JS API only: listen to our events, read minimized/visible (nap detection), read size + resize (landscape clock swaps the user's current size), and the drag script's start-dragging. Hiding, showing, always-on-top and quitting go through our own commands; maximizing is deliberately not granted.",
+  "description": "Main window, JS API only: listen to our events, read minimized/visible (nap detection), read size and position + resize and move (the window snaps to the stick after a resize, and turns with the landscape clock), and the drag script's start-dragging. Hiding, showing, always-on-top and quitting go through our own commands; maximizing is deliberately not granted.",
   "windows": [
     "main"
   ],
@@ -13,6 +13,8 @@
     "core:window:allow-inner-size",
     "core:window:allow-scale-factor",
     "core:window:allow-set-size",
+    "core:window:allow-outer-position",
+    "core:window:allow-set-position",
     "core:window:allow-start-dragging",
     "core:app:allow-version"
   ]

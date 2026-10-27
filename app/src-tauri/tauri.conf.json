@@ -22,10 +22,12 @@
         "maximizable": false,
         "alwaysOnTop": true,
         "acceptFirstMouse": true,
+        "transparent": true,
+        "shadow": false,
         "skipTaskbar": false,
         "dragDropEnabled": true,
-        "minWidth": 160,
-        "minHeight": 160
+        "minWidth": 132,
+        "minHeight": 132
       }
     ],
     "security": {

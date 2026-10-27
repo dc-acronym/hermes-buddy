@@ -6,7 +6,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize, PhysicalPosition, getCurrentWindow } from "@tauri-apps/api/window";
 import type { CharacterPack } from "../data/types";
 import { inputReleaseKeys } from "./input";
 import type { Display } from "./tft";
@@ -234,6 +234,10 @@ export function quitApp(): void {
 
 /** The bezel's design size; the window is resizable and the frame is scaled to fit it. */
 export const PORTRAIT = { w: 330, h: 640 };
+/** Smallest stick: 132px across, so portrait (132x256) and sideways (256x132) both fit the window minimum. */
+const MIN_SCALE = 0.4;
+/** A resize that has been still this long is over; then the window snaps to the stick. */
+const SNAP_MS = 350;
 let landscape = false;
 
 /** Scale factor that fits the (possibly rotated) bezel inside a w x h viewport. */
@@ -249,28 +253,71 @@ export function applyFit(): void {
   document.documentElement.style.setProperty("--fit", String(fitScale(window.innerWidth, window.innerHeight, landscape)));
 }
 
-if (hasDom) {
-  window.addEventListener("resize", applyFit);
-  applyFit();
+/**
+ * The window size that holds just the stick, with nothing around it: the stick at the scale it
+ * has in a w x h window (lying sideways if fromLandscape), turned to toLandscape. The window is
+ * transparent on macOS and Windows, so any room around the stick is invisible but still
+ * catches clicks and holds the resize edges; snapping to this size removes it.
+ */
+export function stickWindowSize(
+  w: number,
+  h: number,
+  fromLandscape: boolean,
+  toLandscape: boolean,
+): { w: number; h: number } {
+  const scale = Math.max(MIN_SCALE, fitScale(w, h, fromLandscape));
+  const fw = toLandscape ? PORTRAIT.h : PORTRAIT.w;
+  const fh = toLandscape ? PORTRAIT.w : PORTRAIT.h;
+  return { w: Math.round(fw * scale), h: Math.round(fh * scale) };
 }
+
+let shaping: Promise<void> = Promise.resolve();
 
 /**
- * Turn the user's current window size to the wanted orientation: same long and short
- * sides, swapped so the long side runs the right way. Keeps whatever size they dragged it to.
+ * Size the window to the stick (see stickWindowSize), keeping the stick where it is on screen:
+ * the window shrinks or turns around the stick's centre. Calls run one at a time, so a turn
+ * reads the size the previous one left (the launch-time trim and the first sideways clock can
+ * land together). Within a pixel counts as done, so the resize this causes doesn't set off another.
  */
-export function orientedSize(w: number, h: number, wantLandscape: boolean): { w: number; h: number } {
-  const long = Math.max(w, h);
-  const short = Math.min(w, h);
-  return wantLandscape ? { w: long, h: short } : { w: short, h: long };
+function shapeWindow(fromLandscape: boolean | null, toLandscape: boolean): Promise<void> {
+  shaping = shaping
+    .then(() => reshape(fromLandscape, toLandscape))
+    .catch((e) => warn("shape window", e));
+  return shaping;
 }
 
-async function orientWindow(wantLandscape: boolean): Promise<void> {
+async function reshape(fromLandscape: boolean | null, toLandscape: boolean): Promise<void> {
   const win = getCurrentWindow();
-  const [size, factor] = await Promise.all([win.innerSize(), win.scaleFactor()]);
+  const [size, factor, pos] = await Promise.all([win.innerSize(), win.scaleFactor(), win.outerPosition()]);
   const cur = { w: size.width / factor, h: size.height / factor };
-  const next = orientedSize(cur.w, cur.h, wantLandscape);
-  if (Math.abs(next.w - cur.w) < 1 && Math.abs(next.h - cur.h) < 1) return;
+  // null: unknown (a remembered window at launch); only a clearly wide window was lying sideways.
+  const from = fromLandscape ?? cur.w > cur.h * 1.5;
+  const next = stickWindowSize(cur.w, cur.h, from, toLandscape);
+  if (Math.abs(next.w - cur.w) <= 1 && Math.abs(next.h - cur.h) <= 1) return;
   await win.setSize(new LogicalSize(next.w, next.h));
+  const dx = Math.round(((cur.w - next.w) / 2) * factor);
+  const dy = Math.round(((cur.h - next.h) / 2) * factor);
+  if (dx !== 0 || dy !== 0) await win.setPosition(new PhysicalPosition(pos.x + dx, pos.y + dy));
+}
+
+let snapTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Window resized: re-fit the bezel now, and once the resize settles, snap the window to it. */
+function onResize(): void {
+  applyFit();
+  if (!isTauri) return;
+  if (snapTimer !== null) clearTimeout(snapTimer);
+  snapTimer = setTimeout(() => {
+    snapTimer = null;
+    void shapeWindow(landscape, landscape);
+  }, SNAP_MS);
+}
+
+if (hasDom) {
+  // In a browser (dev, gallery, QA) the page paints the dark backdrop the window would show.
+  if (!isTauri) document.documentElement.classList.add("web");
+  window.addEventListener("resize", onResize);
+  applyFit();
 }
 
 /** Lay the bezel on its side (see attachRotation for direction) and turn the Tauri window to match. */
@@ -280,11 +327,7 @@ export function setLandscape(on: boolean): void {
   if (hasDom) document.body.classList.toggle("landscape", on);
   applyFit();
   if (!isTauri) return;
-  try {
-    orientWindow(on).catch((e) => warn("setSize", e));
-  } catch (e) {
-    warn("getCurrentWindow", e);
-  }
+  void shapeWindow(!on, on);
 }
 
 export function isLandscape(): boolean {
@@ -302,7 +345,7 @@ export function attachRotation(display: Display): void {
     if (hasDom) document.body.classList.toggle("ccw", (rotation & 3) === 3);
     setLandscape((rotation & 1) === 1);
   };
-  if (isTauri) orientWindow(false).catch((e) => warn("setSize", e));
+  if (isTauri) void shapeWindow(null, false);
 }
 
 // ── Hermes db path config ───────────────────────────────────────────────────

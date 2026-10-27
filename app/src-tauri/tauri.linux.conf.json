@@ -13,8 +13,9 @@
         "alwaysOnTop": true,
         "skipTaskbar": false,
         "dragDropEnabled": true,
-        "minWidth": 160,
-        "minHeight": 160
+        "minWidth": 132,
+        "minHeight": 132,
+        "backgroundColor": "#110a1a"
       }
     ]
   }

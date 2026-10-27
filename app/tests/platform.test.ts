@@ -38,9 +38,12 @@ async function tauriPlatform(
   const win: MockWindow = {
     size: { width: 330, height: 640 },
     factor: 1,
+    pos: { x: 0, y: 0 },
     setSize: vi.fn(async () => {}),
+    setPosition: vi.fn(async () => {}),
     innerSize: async () => win.size,
     scaleFactor: async () => win.factor,
+    outerPosition: async () => win.pos,
   };
   const invoke = vi.fn(async (cmd: string, args: { name?: string } = {}) => handler(cmd, args));
   const listeners = new Map<string, (e: { payload: unknown }) => void>();
@@ -56,6 +59,9 @@ async function tauriPlatform(
     LogicalSize: class {
       constructor(readonly width: number, readonly height: number) {}
     },
+    PhysicalPosition: class {
+      constructor(readonly x: number, readonly y: number) {}
+    },
     getCurrentWindow: () => win,
   }));
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
@@ -68,9 +74,12 @@ async function tauriPlatform(
 interface MockWindow {
   size: { width: number; height: number };
   factor: number;
+  pos: { x: number; y: number };
   setSize: ReturnType<typeof vi.fn>;
+  setPosition: ReturnType<typeof vi.fn>;
   innerSize(): Promise<{ width: number; height: number }>;
   scaleFactor(): Promise<number>;
+  outerPosition(): Promise<{ x: number; y: number }>;
 }
 
 const saves = (invoke: ReturnType<typeof vi.fn>): unknown[][] =>
@@ -202,35 +211,95 @@ describe("resizable window", () => {
     expect(fitScale(330, 640, true)).toBeCloseTo(330 / 640);
   });
 
-  it("orientedSize keeps the user's long and short sides, turned the wanted way", async () => {
-    const { orientedSize } = await import("../src/hw/platform");
-    expect(orientedSize(400, 776, true)).toEqual({ w: 776, h: 400 });
-    expect(orientedSize(776, 400, true)).toEqual({ w: 776, h: 400 });
-    expect(orientedSize(776, 400, false)).toEqual({ w: 400, h: 776 });
+  it("stickWindowSize is the window around just the stick, at its current scale", async () => {
+    const { stickWindowSize } = await import("../src/hw/platform");
+    expect(stickWindowSize(330, 640, false, false)).toEqual({ w: 330, h: 640 });
+    // A window dragged wider than the stick: same stick, no room around it.
+    expect(stickWindowSize(660, 600, false, false)).toEqual({ w: 309, h: 600 });
+    expect(stickWindowSize(330, 640, false, true)).toEqual({ w: 640, h: 330 }); // turned sideways
+    expect(stickWindowSize(400, 776, false, true)).toEqual({ w: 776, h: 400 });
+    expect(stickWindowSize(776, 400, true, false)).toEqual({ w: 400, h: 776 });
+    expect(stickWindowSize(100, 100, false, false)).toEqual({ w: 132, h: 256 }); // never below 0.4x
   });
 
-  it("laying the stick sideways turns a resized window, in logical pixels", async () => {
+  it("laying the stick sideways turns the window around the stick's centre, in logical pixels", async () => {
     const { plat, win } = await tauriPlatform();
     win.size = { width: 800, height: 1552 }; // 400x776 logical on a 2x screen
     win.factor = 2;
+    win.pos = { x: 1000, y: 500 };
     plat.setLandscape(true);
     await flush();
     expect(win.setSize).toHaveBeenCalledTimes(1);
     expect(win.setSize.mock.calls[0][0]).toMatchObject({ width: 776, height: 400 });
+    // (400-776)/2 logical = -188 = -376 physical across, +376 down
+    expect(win.setPosition.mock.calls[0][0]).toMatchObject({ x: 624, y: 876 });
     expect(document.body.classList.contains("landscape")).toBe(true);
 
     win.size = { width: 1552, height: 800 };
+    win.pos = { x: 624, y: 876 };
     plat.setLandscape(false);
     await flush();
     expect(win.setSize.mock.calls[1][0]).toMatchObject({ width: 400, height: 776 });
+    expect(win.setPosition.mock.calls[1][0]).toMatchObject({ x: 1000, y: 500 });
   });
 
-  it("does not touch a window that already has the right orientation", async () => {
-    const { plat, win } = await tauriPlatform();
-    win.size = { width: 900, height: 500 };
-    plat.setLandscape(true);
+  it("leaves a window that already fits the stick alone", async () => {
+    vi.useFakeTimers();
+    const { win } = await tauriPlatform();
+    win.size = { width: 331, height: 640 }; // a pixel of rounding is fine
+    window.dispatchEvent(new Event("resize"));
+    await vi.advanceTimersByTimeAsync(400);
     await flush();
     expect(win.setSize).not.toHaveBeenCalled();
+    expect(win.setPosition).not.toHaveBeenCalled();
+  });
+
+  it("a sideways clock right at launch turns the window the launch trim left", async () => {
+    const { plat, win } = await tauriPlatform();
+    win.size = { width: 776, height: 400 }; // remembered sideways
+    win.setSize.mockImplementation(async (s: { width: number; height: number }) => {
+      await Promise.resolve();
+      win.size = { width: s.width, height: s.height };
+    });
+    plat.attachRotation({} as Parameters<Platform["attachRotation"]>[0]); // stands it up...
+    plat.setLandscape(true); // ...while the clock already lies down
+    await flush();
+    await flush();
+    expect(win.setSize.mock.calls.map((c) => [c[0].width, c[0].height])).toEqual([
+      [400, 776],
+      [776, 400],
+    ]);
+  });
+
+  it("snaps the window to the stick once a resize has settled", async () => {
+    vi.useFakeTimers();
+    const { win } = await tauriPlatform();
+    win.size = { width: 660, height: 600 };
+    win.pos = { x: 200, y: 100 };
+    window.dispatchEvent(new Event("resize"));
+    await vi.advanceTimersByTimeAsync(200);
+    window.dispatchEvent(new Event("resize")); // still dragging: starts the wait over
+    await vi.advanceTimersByTimeAsync(300);
+    expect(win.setSize).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(100);
+    await flush();
+    expect(win.setSize).toHaveBeenCalledTimes(1);
+    expect(win.setSize.mock.calls[0][0]).toMatchObject({ width: 309, height: 600 });
+    expect(win.setPosition.mock.calls[0][0]).toMatchObject({ x: 376, y: 100 }); // stick stays put
+  });
+
+  it("at launch, stands a remembered sideways window up and trims an odd-shaped one", async () => {
+    const display = {} as Parameters<Platform["attachRotation"]>[0];
+    const { plat, win } = await tauriPlatform();
+    win.size = { width: 776, height: 400 }; // quit while the clock lay sideways
+    plat.attachRotation(display);
+    await flush();
+    expect(win.setSize.mock.calls[0][0]).toMatchObject({ width: 400, height: 776 });
+
+    win.size = { width: 660, height: 600 }; // the stick stood in a wide window: portrait, trimmed
+    plat.attachRotation(display);
+    await flush();
+    expect(win.setSize.mock.calls[1][0]).toMatchObject({ width: 309, height: 600 });
   });
 });
 
