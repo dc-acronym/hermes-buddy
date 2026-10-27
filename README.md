@@ -76,11 +76,23 @@ On Windows: SmartScreen → More info → Run anyway.
 
 `.github/workflows/release.yml` builds the universal macOS DMG on GitHub's macOS runners.
 
-- **Publish a release:** bump `version` in `app/package.json`, `app/src-tauri/tauri.conf.json` and
-  the root `Cargo.toml` (they should match the tag), commit, then `git tag v0.1.1 && git push origin v0.1.1`.
-  The workflow runs the unit tests, builds the DMG and publishes it on the Releases page.
+- **Publish a release:** bump `version` in `app/src-tauri/tauri.conf.json` (keep `app/package.json`
+  and the root `Cargo.toml` in step), commit to `main`, then push `main` to the `release` branch:
+
+  ```bash
+  git push origin main:release
+  ```
+
+  The workflow runs the unit tests, builds the DMG and publishes release `v<version>`; GitHub
+  creates the tag. Bump the version every time: pushing `release` again with the same version
+  re-uses that release.
+- **Or by tag:** pushing a `v*` tag (or creating one with *Draft a new release* in the GitHub UI)
+  also builds and attaches the DMG to that release.
 - **Just build one:** Actions → *Release (macOS DMG)* → **Run workflow**. The DMG is attached to the
   run as the `hermes-buddy-macos-dmg` artifact; no release is created.
+
+Every release also shows GitHub's automatic "Source code (zip/tar.gz)" downloads; the DMG appears
+next to them when the build finishes, roughly 10–20 minutes after the push.
 
 The repo is private, so whoever downloads the DMG needs access to it (add them as a collaborator), or
 make the repo public.

@@ -1,8 +1,9 @@
-# macOS DMG release.
+# macOS DMG release: builds a universal (Apple Silicon + Intel) DMG.
 #
-# Push a tag like v0.1.0 → builds a universal (Apple Silicon + Intel) DMG and publishes it as a
-# GitHub release. Run it by hand (Actions → Release (macOS DMG) → Run workflow) to just build the
-# DMG and download it from the run's artifacts, without making a release.
+#   push to the `release` branch → publishes release v<version> (version from tauri.conf.json);
+#                                  GitHub creates the tag, so nobody has to push one
+#   push a tag like v0.1.0       → publishes a release for that tag
+#   Actions → Run workflow       → just builds; the DMG is the run's artifact, no release
 #
 # The app is ad-hoc signed (APPLE_SIGNING_IDENTITY "-"), not Developer ID signed or notarized, so
 # first launch needs the quarantine step in the README.
@@ -10,6 +11,7 @@ name: Release (macOS DMG)
 
 on:
   push:
+    branches: [release]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -57,9 +59,10 @@ jobs:
         with:
           projectPath: app
           args: --target universal-apple-darwin --bundles dmg
-          # Only tag pushes create a release; a manual run just builds.
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: Hermes Buddy ${{ github.ref_name }}
+          # Tag push → that tag; release branch → v<version>, tag created with the release
+          # (tauri-action fills in __VERSION__); manual run → '' = build only, no release.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || (github.ref == 'refs/heads/release' && 'v__VERSION__' || '') }}
+          releaseName: Hermes Buddy v__VERSION__
           releaseDraft: false
           prerelease: false
           releaseBody: |
@@ -76,7 +79,7 @@ jobs:
             Full notes in the README.
 
       - name: Upload DMG artifact (manual runs)
-        if: github.ref_type != 'tag'
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: hermes-buddy-macos-dmg
