@@ -7,7 +7,8 @@
 use serde_json::Value;
 
 /// A transcript line on the stick (firmware `lines[]` width).
-pub const MAX_LINE_CHARS: usize = 91;
+/// One transcript entry: 8 rows of the stick's 21-column transcript strip.
+pub const MAX_LINE_CHARS: usize = 168;
 /// `msg` on the stick (firmware `msg[24]`).
 pub const MAX_MSG_CHARS: usize = 23;
 /// `model` on the stick.

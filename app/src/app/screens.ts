@@ -240,7 +240,7 @@ function _infoHeader(p: Palette, y: number, section: string, page: number): numb
   return y;
 }
 
-/** Info pages 0..5: ABOUT, BUTTONS(+pet how-to), HERMES, DEVICE, DATABASE, CREDITS. */
+/** Info pages 0..5: ABOUT, BUTTONS(+pet how-to), HERMES, DEVICE, DATABASE, "for v". */
 export function drawInfo(): void {
   const p = characterPalette();
   const tama = ui.tama;
@@ -388,27 +388,14 @@ export function drawInfo(): void {
     ln(`  last poll ${age}`);
 
   } else {
-    y = _infoHeader(p, y, "CREDITS", infoPage);
-    spr.setTextColor(p.textDim, p.bg);
-    ln("original firmware");
-    y += 4;
+    // Last page (was CREDITS; the licence lives in the repo): a dedication, centred
+    // in the info area under the peeking pet.
     spr.setTextColor(p.text, p.bg);
-    ln("Anthropic (MIT)");
-    ln("github.com/anthropics");
-    ln("/claude-desktop-buddy");
-    y += 12;
-    spr.setTextColor(p.textDim, p.bg);
-    ln("desktop port");
-    y += 4;
-    spr.setTextColor(p.text, p.bg);
-    ln("Hermes Buddy");
-    ln("Tauri + TypeScript");
-    y += 12;
-    spr.setTextColor(p.textDim, p.bg);
-    ln("ASCII pets");
-    y += 4;
-    ln("18 species, ported");
-    ln("from the original");
+    spr.setTextSize(2);
+    spr.setTextDatum(MC_DATUM);
+    spr.drawString("for v", CX, TOP + Math.floor((H - TOP) / 2));
+    spr.setTextDatum(TL_DATUM);
+    spr.setTextSize(1);
   }
 }
 function tinyHeart(x: number, y: number, filled: boolean, col: number): void {
@@ -506,7 +493,10 @@ export function drawHUD(): void {
   const tama = ui.tama;
   if (tama.promptId) { drawAttention(); return; }
   const p = characterPalette();
-  const SHOW = 3, LH = 8, WIDTH = 21;
+  // The firmware showed 3 rows. The 2x pet never draws below y=142 (measured over every
+  // species/state), so 11 rows (y 148..240) fit under it; buddyTick's strip clear reaches
+  // y=164 but the HUD repaints after it every frame.
+  const SHOW = 11, LH = 8, WIDTH = 21;
   const AREA = SHOW * LH + 4;
   spr.fillRect(0, H - AREA, W, AREA, p.bg);
   spr.setTextSize(1);

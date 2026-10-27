@@ -114,18 +114,40 @@ make the repo public.
 | **Shake**: dizzy | drag the window back and forth fast | |
 | **Face-down nap** (energy refills) | minimize the window | |
 
-Drag the stick around by its body. The tray icon has Show/Hide, Next pet and Quit.
+Drag the stick around by its body, and resize the window from any edge: the stick scales to fit,
+and the next launch puts it back where it was, at that size. The tray icon has Show/Hide, Next pet
+and Quit.
 
 **Menu → settings:** brightness · sound · **hermes** (point it at a different `state.db`) ·
-**on top** (always-on-top) · led · transcript · clock rot · ascii pet · reset.
+**profile** (switch Hermes profile, below) · **on top** (always-on-top) · led · transcript ·
+clock rot · ascii pet · reset.
+
+**Sideways:** set settings → clock rot → **land**. Whenever Hermes is idle the home screen becomes
+the clock, and with `land` the stick lies on its side and the window turns with it. It stands back
+up as soon as a session starts, because the other screens are portrait-only, as on the real stick.
+
+The transcript on the home screen shows the last 11 lines; B scrolls back further.
 
 ## Where it looks for Hermes
 
 `$HERMES_HOME/state.db` if `HERMES_HOME` is set, otherwise the same default Hermes uses:
-`~/.hermes/state.db` on macOS/Linux, `%LOCALAPPDATA%\hermes\state.db` on Windows. If you use a Hermes
-**profile** or run Hermes in **Docker**, open Menu → settings → hermes and paste the path to that
-profile's / volume's `state.db`. If it can't find one, the home screen says "No Hermes connected";
-Info → DATABASE shows the path in use, the error, and when it last polled.
+`~/.hermes/state.db` on macOS/Linux, `%LOCALAPPDATA%\hermes\state.db` on Windows.
+
+**Hermes profiles:** each one has its own database, e.g.
+
+```
+~/.hermes/state.db                        default
+~/.hermes/profiles/test-profile/state.db  test-profile
+```
+
+Menu → settings → **profile** shows which one it's watching. Each B press steps to the next one:
+default, then every named profile that has a `state.db` (alphabetical), then back to default. The
+choice is remembered.
+
+If you run Hermes in **Docker** or keep its data somewhere else, open Menu → settings → hermes and
+paste the path to that `state.db` (the profile row then says `custom`; B on it goes back to default).
+If it can't find one, the home screen says "No Hermes connected"; Info → DATABASE shows the path in
+use, the error, and when it last polled.
 
 It opens the database read-only for each poll and closes it again, so it never holds Hermes's files
 open (Hermes's own `sessions optimize` / `prune` and startup repair keep working) and never creates
@@ -160,9 +182,9 @@ A pack is checked before it replaces the current one (every GIF it names must ex
 cd app
 npm run dev                      # then open http://localhost:1420/?demo in a browser (no Tauri needed)
                                  # http://localhost:1420/gallery.html renders every pet, state and screen
-npm test                         # 594 vitest tests
+npm test                         # 600 vitest tests
 node tests/e2e/screenshots.mjs   # Playwright screenshots into tests/out/
-cd .. && cargo test --workspace  # 170 Rust tests (watcher replays real Hermes prompt rows)
+cd .. && cargo test --workspace  # 172 Rust tests (watcher replays real Hermes prompt rows)
 ```
 
 In a browser, Shift+S shakes the stick and Shift+N switches pets; `?mock=<url-encoded JSON>` injects a

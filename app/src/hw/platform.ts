@@ -232,20 +232,56 @@ export function quitApp(): void {
   invoke("quit_app").catch((e) => warn("quit_app", e));
 }
 
-const PORTRAIT = { w: 330, h: 640 };
+/** The bezel's design size; the window is resizable and the frame is scaled to fit it. */
+export const PORTRAIT = { w: 330, h: 640 };
 let landscape = false;
 
-/** Lay the bezel on its side (see attachRotation for direction) and resize the Tauri window to match. */
+/** Scale factor that fits the (possibly rotated) bezel inside a w x h viewport. */
+export function fitScale(w: number, h: number, isLandscape: boolean): number {
+  const fw = isLandscape ? PORTRAIT.h : PORTRAIT.w;
+  const fh = isLandscape ? PORTRAIT.w : PORTRAIT.h;
+  return Math.max(0.1, Math.min(w / fw, h / fh));
+}
+
+/** Re-fit the bezel to the window (style.css scales .frame by --fit). */
+export function applyFit(): void {
+  if (!hasDom) return;
+  document.documentElement.style.setProperty("--fit", String(fitScale(window.innerWidth, window.innerHeight, landscape)));
+}
+
+if (hasDom) {
+  window.addEventListener("resize", applyFit);
+  applyFit();
+}
+
+/**
+ * Turn the user's current window size to the wanted orientation: same long and short
+ * sides, swapped so the long side runs the right way. Keeps whatever size they dragged it to.
+ */
+export function orientedSize(w: number, h: number, wantLandscape: boolean): { w: number; h: number } {
+  const long = Math.max(w, h);
+  const short = Math.min(w, h);
+  return wantLandscape ? { w: long, h: short } : { w: short, h: long };
+}
+
+async function orientWindow(wantLandscape: boolean): Promise<void> {
+  const win = getCurrentWindow();
+  const [size, factor] = await Promise.all([win.innerSize(), win.scaleFactor()]);
+  const cur = { w: size.width / factor, h: size.height / factor };
+  const next = orientedSize(cur.w, cur.h, wantLandscape);
+  if (Math.abs(next.w - cur.w) < 1 && Math.abs(next.h - cur.h) < 1) return;
+  await win.setSize(new LogicalSize(next.w, next.h));
+}
+
+/** Lay the bezel on its side (see attachRotation for direction) and turn the Tauri window to match. */
 export function setLandscape(on: boolean): void {
   if (on === landscape) return;
   landscape = on;
   if (hasDom) document.body.classList.toggle("landscape", on);
+  applyFit();
   if (!isTauri) return;
-  const size = on ? new LogicalSize(PORTRAIT.h, PORTRAIT.w) : new LogicalSize(PORTRAIT.w, PORTRAIT.h);
   try {
-    getCurrentWindow()
-      .setSize(size)
-      .catch((e) => warn("setSize", e));
+    orientWindow(on).catch((e) => warn("setSize", e));
   } catch (e) {
     warn("getCurrentWindow", e);
   }
@@ -257,13 +293,16 @@ export function isLandscape(): boolean {
 
 /**
  * Wire the display's rotation callback to the bezel: an odd rotation (landscape clock)
- * turns the device 90° CCW and swaps the window to 640x330. main.ts calls this if it exists.
+ * turns the device on its side and the window with it. main.ts calls this at boot, which
+ * is also when a window remembered in landscape (quit while the clock lay sideways) is
+ * stood back up, since the app always starts in portrait.
  */
 export function attachRotation(display: Display): void {
   display.onRotationChange = (rotation: number) => {
     if (hasDom) document.body.classList.toggle("ccw", (rotation & 3) === 3);
     setLandscape((rotation & 1) === 1);
   };
+  if (isTauri) orientWindow(false).catch((e) => warn("setSize", e));
 }
 
 // ── Hermes db path config ───────────────────────────────────────────────────
@@ -295,6 +334,24 @@ export async function setDbPath(path: string | null): Promise<void> {
   }
   if (path) lsSet("dbPath", path);
   else lsRemove("dbPath");
+}
+
+/** A Hermes profile: "default" (the home's own state.db) or a named one under profiles/. */
+export interface HermesProfile {
+  name: string;
+  path: string;
+}
+
+/** Default first, then each named profile that has a state.db (Settings → profile). */
+export async function listProfiles(): Promise<HermesProfile[]> {
+  if (isTauri) {
+    try {
+      return await invoke<HermesProfile[]>("list_profiles");
+    } catch (e) {
+      warn("list_profiles", e);
+    }
+  }
+  return [{ name: "default", path: DEFAULT_DB_PATH }];
 }
 
 export function pollNow(): void {
@@ -413,7 +470,8 @@ export function showToast(text: string): void {
   el.className = "toast";
   el.setAttribute("role", "status");
   el.textContent = text.length > TOAST_MAX_CHARS ? `${text.slice(0, TOAST_MAX_CHARS - 1)}…` : text;
-  document.body.append(el);
+  // Inside the frame, so it scales and turns with the bezel when the window is resized.
+  (document.getElementById("frame") ?? document.body).append(el);
   toastTimer = setTimeout(() => {
     el.remove();
     toastTimer = null;

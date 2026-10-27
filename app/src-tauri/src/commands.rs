@@ -80,6 +80,12 @@ pub fn set_db_path(
     storage::write_config(&config_dir(&app)?, &AppConfig { db_path: path })
 }
 
+/// The default Hermes profile and every named profile with a `state.db`, for Settings → profile.
+#[tauri::command(async)]
+pub fn list_profiles() -> Vec<crate::profiles::Profile> {
+    crate::profiles::list(&hermes_watch::default_db_path())
+}
+
 #[tauri::command]
 pub fn poll_now(state: State<'_, AppState>) {
     state.poller.poll_now();
@@ -99,7 +105,7 @@ pub fn hide_window(window: WebviewWindow, state: State<'_, AppState>) -> Result<
 
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
-    app.exit(0);
+    crate::quit(&app);
 }
 
 #[tauri::command(async)]

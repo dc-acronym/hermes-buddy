@@ -12,7 +12,9 @@
         "maximizable": false,
         "alwaysOnTop": true,
         "skipTaskbar": false,
-        "dragDropEnabled": true
+        "dragDropEnabled": true,
+        "minWidth": 160,
+        "minHeight": 160
       }
     ]
   }

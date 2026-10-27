@@ -28,7 +28,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             NEXT_PET => {
                 let _ = app.emit(NEXT_PET_EVENT, ());
             }
-            QUIT => app.exit(0),
+            QUIT => crate::quit(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

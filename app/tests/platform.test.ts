@@ -34,7 +34,14 @@ afterEach(() => {
 /** Fresh platform.ts running "under Tauri"; `handler` plays the Rust side, `emit` plays its events. */
 async function tauriPlatform(
   handler: (cmd: string, args: { name?: string }) => unknown = () => null,
-): Promise<{ plat: Platform; invoke: ReturnType<typeof vi.fn>; emit: (event: string, payload: unknown) => void }> {
+): Promise<{ plat: Platform; invoke: ReturnType<typeof vi.fn>; emit: (event: string, payload: unknown) => void; win: MockWindow }> {
+  const win: MockWindow = {
+    size: { width: 330, height: 640 },
+    factor: 1,
+    setSize: vi.fn(async () => {}),
+    innerSize: async () => win.size,
+    scaleFactor: async () => win.factor,
+  };
   const invoke = vi.fn(async (cmd: string, args: { name?: string } = {}) => handler(cmd, args));
   const listeners = new Map<string, (e: { payload: unknown }) => void>();
   vi.doMock("@tauri-apps/api/core", () => ({ invoke }));
@@ -49,13 +56,21 @@ async function tauriPlatform(
     LogicalSize: class {
       constructor(readonly width: number, readonly height: number) {}
     },
-    getCurrentWindow: () => ({ setSize: vi.fn(async () => {}) }),
+    getCurrentWindow: () => win,
   }));
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
   const plat = await import("../src/hw/platform");
   expect(plat.isTauri).toBe(true);
   await flush();
-  return { plat, invoke, emit: (event, payload) => listeners.get(event)?.({ payload }) };
+  return { plat, invoke, emit: (event, payload) => listeners.get(event)?.({ payload }), win };
+}
+
+interface MockWindow {
+  size: { width: number; height: number };
+  factor: number;
+  setSize: ReturnType<typeof vi.fn>;
+  innerSize(): Promise<{ width: number; height: number }>;
+  scaleFactor(): Promise<number>;
 }
 
 const saves = (invoke: ReturnType<typeof vi.fn>): unknown[][] =>
@@ -173,5 +188,76 @@ describe("character-error toast", () => {
     emit("buddy://character-error", { oops: true });
     expect(toast()).not.toBeNull();
     expect(toast()!.textContent).not.toContain("[object");
+  });
+});
+
+describe("resizable window", () => {
+  it("fitScale fits the bezel (330x640, or 640x330 on its side) inside the window", async () => {
+    const { fitScale } = await import("../src/hw/platform");
+    expect(fitScale(330, 640, false)).toBe(1);
+    expect(fitScale(660, 1280, false)).toBe(2);
+    expect(fitScale(660, 640, false)).toBe(1); // height-bound
+    expect(fitScale(165, 1000, false)).toBe(0.5); // width-bound
+    expect(fitScale(640, 330, true)).toBe(1);
+    expect(fitScale(330, 640, true)).toBeCloseTo(330 / 640);
+  });
+
+  it("orientedSize keeps the user's long and short sides, turned the wanted way", async () => {
+    const { orientedSize } = await import("../src/hw/platform");
+    expect(orientedSize(400, 776, true)).toEqual({ w: 776, h: 400 });
+    expect(orientedSize(776, 400, true)).toEqual({ w: 776, h: 400 });
+    expect(orientedSize(776, 400, false)).toEqual({ w: 400, h: 776 });
+  });
+
+  it("laying the stick sideways turns a resized window, in logical pixels", async () => {
+    const { plat, win } = await tauriPlatform();
+    win.size = { width: 800, height: 1552 }; // 400x776 logical on a 2x screen
+    win.factor = 2;
+    plat.setLandscape(true);
+    await flush();
+    expect(win.setSize).toHaveBeenCalledTimes(1);
+    expect(win.setSize.mock.calls[0][0]).toMatchObject({ width: 776, height: 400 });
+    expect(document.body.classList.contains("landscape")).toBe(true);
+
+    win.size = { width: 1552, height: 800 };
+    plat.setLandscape(false);
+    await flush();
+    expect(win.setSize.mock.calls[1][0]).toMatchObject({ width: 400, height: 776 });
+  });
+
+  it("does not touch a window that already has the right orientation", async () => {
+    const { plat, win } = await tauriPlatform();
+    win.size = { width: 900, height: 500 };
+    plat.setLandscape(true);
+    await flush();
+    expect(win.setSize).not.toHaveBeenCalled();
+  });
+});
+
+describe("listProfiles", () => {
+  it("asks the shell under Tauri", async () => {
+    const list = [
+      { name: "default", path: "/Users/v/.hermes/state.db" },
+      { name: "test-profile", path: "/Users/v/.hermes/profiles/test-profile/state.db" },
+    ];
+    const { plat, invoke } = await tauriPlatform((cmd) => (cmd === "list_profiles" ? list : null));
+    expect(await plat.listProfiles()).toEqual(list);
+    expect(invoke).toHaveBeenCalledWith("list_profiles");
+  });
+
+  it("falls back to just the default when the shell fails, or in a browser", async () => {
+    const { plat } = await tauriPlatform((cmd) => {
+      if (cmd === "list_profiles") throw new Error("boom");
+      return null;
+    });
+    expect(await plat.listProfiles()).toEqual([{ name: "default", path: "~/.hermes/state.db" }]);
+    expect(warn).toHaveBeenCalled();
+
+    vi.resetModules();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    vi.doUnmock("@tauri-apps/api/core");
+    const browser = await import("../src/hw/platform");
+    expect(browser.isTauri).toBe(false);
+    expect(await browser.listProfiles()).toEqual([{ name: "default", path: "~/.hermes/state.db" }]);
   });
 });

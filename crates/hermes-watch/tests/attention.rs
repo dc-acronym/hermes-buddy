@@ -96,7 +96,7 @@ fn clarify_hint_is_ascii_and_bounded() {
     db.assistant_call("s", NOW - 20.0, "", "tc1", "clarify", &args);
     let p = poll_db(&db).prompt.unwrap();
     assert!(p.hint.is_ascii(), "{:?}", p.hint);
-    assert!(p.hint.chars().count() <= 91);
+    assert!(p.hint.chars().count() <= hermes_watch::MAX_LINE_CHARS);
     assert!(p.hint.starts_with("Shall we very very"));
     let db = Db::new();
     db.session(Sess::new("s"));

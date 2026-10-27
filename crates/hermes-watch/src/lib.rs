@@ -16,6 +16,7 @@ mod text;
 mod watcher;
 
 pub use snapshot::{HermesSnapshot, PendingPrompt};
+pub use text::MAX_LINE_CHARS;
 pub use watcher::{default_db_path, running_window_secs, Watcher};
 
 /// The attention statement, exposed so the test-suite can check its query plan.

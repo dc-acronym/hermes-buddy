@@ -30,6 +30,8 @@ const h = vi.hoisted(() => {
     brightness: [] as number[],
     power: [] as boolean[],
     onTop: [] as boolean[],
+    profiles: [] as { name: string; path: string }[],
+    dbPaths: [] as (string | null)[],
     speciesIdx: 0,
     charOk: false,
     feedTokens: null as null | ((n: number) => void),
@@ -40,6 +42,7 @@ const h = vi.hoisted(() => {
       this.onOrient = null; this.shakeCb = null; this.napCb = null; this.nextPetCb = null; this.installedCb = null;
       this.beeps = []; this.leds = []; this.calls = []; this.buddyTicks = [];
       this.pushes = []; this.brightness = []; this.power = []; this.onTop = [];
+      this.profiles = []; this.dbPaths = [];
       this.speciesIdx = 0;
       this.charOk = false;
       this.feedTokens = null;
@@ -69,6 +72,8 @@ vi.mock("../src/hw/platform", () => ({
   setAlwaysOnTop: (on: boolean) => { h.onTop.push(on); },
   hideWindow: () => { h.calls.push("hideWindow"); },
   openDbSettings: () => { h.calls.push("openDbSettings"); },
+  listProfiles: async () => h.profiles,
+  setDbPath: async (p: string | null) => { h.dbPaths.push(p); },
   getCharacter: async () => null,
   deleteCharacter: async () => { h.calls.push("deleteCharacter"); },
   factoryReset: async () => { h.calls.push("factoryReset"); },
@@ -351,13 +356,13 @@ describe("buttons and display modes", () => {
 
     holdA(lp, 700);
     tap(lp, "b"); // settings
-    for (let i = 0; i < 5; i++) tap(lp, "a");
-    expect(ui.settingsSel).toBe(5);
+    for (let i = 0; i < 6; i++) tap(lp, "a");
+    expect(ui.settingsSel).toBe(6);
     expect(wiped(() => tap(lp, "b"))).toBe(true); // transcript off
     expect(stats.settings().hud).toBe(false);
 
     tap(lp, "a"); tap(lp, "a"); tap(lp, "a"); // -> reset
-    expect(ui.settingsSel).toBe(8);
+    expect(ui.settingsSel).toBe(9);
     expect(wiped(() => tap(lp, "b"))).toBe(true); // reset panel is shorter than settings
     expect(ui.resetOpen).toBe(true);
 
@@ -417,16 +422,61 @@ describe("buttons and display modes", () => {
     expect(h.calls).toContain("openDbSettings");
     expect(h.beeps).toEqual([]); // sound is off now, nothing beeped
 
+    tap(lp, "a"); // profile
     tap(lp, "a"); // on top
     tap(lp, "b");
     expect(stats.settings().onTop).toBe(false);
     expect(h.onTop.at(-1)).toBe(false);
 
-    // back (row 9)
+    // back (row 10)
     for (let i = 0; i < 6; i++) tap(lp, "a");
-    expect(ui.settingsSel).toBe(9);
+    expect(ui.settingsSel).toBe(10);
     tap(lp, "b");
     expect(ui.settingsOpen).toBe(false);
+  });
+
+  it("settings: profile cycles default -> each named profile -> default", async () => {
+    const { lp, ui } = await boot();
+    const DEF = "/home/v/.hermes/state.db";
+    const BOB = "/home/v/.hermes/profiles/bob/state.db";
+    const TEST = "/home/v/.hermes/profiles/test-profile/state.db";
+    h.profiles = [
+      { name: "default", path: DEF },
+      { name: "bob", path: BOB },
+      { name: "test-profile", path: TEST },
+    ];
+    h.tama = { connected: true, dbPath: DEF };
+    const { profileLabel } = await import("../src/app/menus");
+    holdA(lp, 700);
+    tap(lp, "b"); // settings
+    await vi.advanceTimersByTimeAsync(0);
+    expect(profileLabel()).toBe("default");
+    for (let i = 0; i < 3; i++) tap(lp, "a");
+    expect(ui.settingsSel).toBe(3); // profile
+
+    const press = async () => { tap(lp, "b"); await vi.advanceTimersByTimeAsync(0); };
+    await press();
+    expect(h.dbPaths).toEqual([BOB]);
+    expect(profileLabel()).toBe("bob"); // shown before the next snapshot lands
+    // A second press before the poller catches up still steps on from the pick.
+    await press();
+    expect(h.dbPaths).toEqual([BOB, TEST]);
+    h.tama = { connected: true, dbPath: TEST };
+    step(lp);
+    expect(profileLabel()).toBe("test-profile");
+    await press();
+    expect(h.dbPaths).toEqual([BOB, TEST, null]); // back to default = no override
+    h.tama = { connected: true, dbPath: DEF };
+    step(lp);
+    expect(profileLabel()).toBe("default");
+
+    // A hand-entered db path (Settings -> hermes) is "custom"; the next press goes to default.
+    h.tama = { connected: true, dbPath: "/srv/other.db" };
+    step(lp);
+    expect(profileLabel()).toBe("custom");
+    await press();
+    expect(h.dbPaths.at(-1)).toBe(null);
+    expect(ui.settingsOpen).toBe(true);
   });
 
   it("reset menu is tap-twice: first B arms, second B within 3 s runs it", async () => {
@@ -434,8 +484,8 @@ describe("buttons and display modes", () => {
     h.tama = { connected: true, sessionsRunning: 1 };
     holdA(lp, 700);
     tap(lp, "b"); // settings
-    for (let i = 0; i < 8; i++) tap(lp, "a");
-    expect(ui.settingsSel).toBe(8);
+    for (let i = 0; i < 9; i++) tap(lp, "a");
+    expect(ui.settingsSel).toBe(9);
     tap(lp, "b"); // reset
     expect(ui.resetOpen).toBe(true);
 
@@ -456,8 +506,9 @@ describe("buttons and display modes", () => {
     h.tama = { connected: true, sessionsRunning: 1 };
     holdA(lp, 700);
     tap(lp, "b");
-    for (let i = 0; i < 8; i++) tap(lp, "a");
+    for (let i = 0; i < 9; i++) tap(lp, "a");
     tap(lp, "b"); // reset menu
+    expect(ui.resetOpen).toBe(true);
     h.calls = [];
     tap(lp, "b"); // arm delete char
     step(lp, 3200); // the arm times out

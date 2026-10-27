@@ -46,7 +46,7 @@ pub struct HermesSnapshot {
     pub tokens_lifetime: u64,
     /// At most 23 ASCII chars: "waiting: <tool>", the newest running session's activity, or "idle".
     pub msg: String,
-    /// At most 8 transcript entries of the newest session, oldest first, each at most 91 ASCII chars.
+    /// At most 8 transcript entries of the newest session, oldest first, each at most `MAX_LINE_CHARS` (168) ASCII chars.
     pub lines: Vec<String>,
     /// Bumps whenever `lines` differs from the previous poll.
     pub line_gen: u64,

@@ -687,11 +687,11 @@ async function screenSections(): Promise<void> {
   // ── info pages ──
   const info = addSection(
     "screens-info",
-    "Info pages 0-5 (ABOUT, BUTTONS, HERMES, DEVICE, DATABASE, CREDITS)",
+    "Info pages 0-5 (ABOUT, BUTTONS, HERMES, DEVICE, DATABASE, for v)",
     "Pet at 1x in peek mode on top; drawInfo() paints from y=70.",
     6,
   );
-  const pageNames = ["ABOUT", "BUTTONS", "HERMES", "DEVICE", "DATABASE", "CREDITS"];
+  const pageNames = ["ABOUT", "BUTTONS", "HERMES", "DEVICE", "DATABASE", "for v"];
   for (let p = 0; p < 6; p++) {
     screenCell(info, `info page ${p} ${pageNames[p]}`, {
       state: p % 2 ? SP.Idle : SP.Sleep,
@@ -917,14 +917,14 @@ async function menuSections(): Promise<void> {
       menus.drawSettings();
     },
   });
-  screenCell(onSet, "settings sel=6 'clock rot', all on, clock rot auto", {
+  screenCell(onSet, "settings sel='clock rot', all on, clock rot auto", {
     tama: mkTama({ sessionsRunning: 2, lines: LINES8 }),
     state: SP.Idle,
     peek: false,
     setup: () => {
       if (sets) Object.assign(sets, { sound: true, onTop: true, led: true, hud: true, clockRot: 0, bright: 4 });
       ui.settingsOpen = true;
-      ui.settingsSel = 6;
+      ui.settingsSel = menus.settingsItems.indexOf("clock rot");
       ui.brightLevel = 4;
     },
     draw: () => {

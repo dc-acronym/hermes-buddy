@@ -18,7 +18,7 @@ const MSG_MAX = 23;
 const TOOL_MAX = 19;
 const HINT_MAX = 43;
 const LINES_MAX = 8;
-const LINE_MAX = 91;
+const LINE_MAX = 168; // 8 rows of the 21-col transcript strip (hermes-watch MAX_LINE_CHARS)
 
 // ── Demo scenarios (firmware _FAKES: name, total, running, waiting, completed, tokens) ──
 

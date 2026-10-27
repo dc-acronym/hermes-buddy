@@ -374,7 +374,7 @@ describe("splash", () => {
 });
 
 describe("drawInfo", () => {
-  const SECTIONS = ["ABOUT", "BUTTONS", "HERMES", "DEVICE", "DATABASE", "CREDITS"];
+  const SECTIONS = ["ABOUT", "BUTTONS", "HERMES", "DEVICE", "DATABASE"];
 
   beforeEach(() => {
     plat.now = 3720000 + 500;   // 1h 02m uptime
@@ -510,15 +510,14 @@ describe("drawInfo", () => {
     expectOnPanel(fake);
   });
 
-  it("CREDITS credits the original firmware and the port", () => {
+  it("page 6 is just 'for v', centred in the info area", () => {
     ui.infoPage = 5;
     drawInfo();
-    const all = strs(fake).join("\n");
-    expect(all).toContain("Anthropic (MIT)");
-    expect(all).toContain("github.com/anthropics");
-    expect(all).toContain("/claude-desktop-buddy");
-    expect(all).toContain("Hermes Buddy");
-    expect(all).toContain("ASCII pets");
+    expect(fake.calls[0]).toEqual({ op: "fillRect", args: [0, 70, W, H - 70, PAL.bg] });
+    expect(fake.texts).toEqual([
+      expect.objectContaining({ text: "for v", x: Math.floor(W / 2), y: 70 + Math.floor((H - 70) / 2), fg: PAL.text }),
+    ]);
+    expectOnPanel(fake);
   });
 });
 
@@ -588,29 +587,36 @@ describe("drawPet", () => {
 });
 
 describe("drawHUD", () => {
-  const LINE_Y = (i: number) => H - 28 + 2 + i * 8;
+  const SHOW = 11;
+  const AREA = SHOW * 8 + 4;
+  const LINE_Y = (i: number) => H - AREA + 2 + i * 8;
+  // 8 entries that wrap to 2 rows each: 16 rows, so 5 sit behind the 11-row window.
+  const sixteen = Array.from({ length: 8 }, (_, i) => `${i} aaaa bbbb cccc dddd eeee`);
 
   it("prints the status message when the transcript is empty", () => {
     setTama({ msg: "No Hermes connected", nLines: 0, lines: [] });
     drawHUD();
-    expect(fake.calls[0]).toEqual({ op: "fillRect", args: [0, H - 28, W, 28, PAL.bg] });
+    expect(fake.calls[0]).toEqual({ op: "fillRect", args: [0, H - AREA, W, AREA, PAL.bg] });
     expect(fake.texts).toEqual([
       expect.objectContaining({ text: "No Hermes connected", x: 4, y: H - 10, fg: PAL.text, bg: PAL.bg }),
     ]);
   });
 
-  it("shows the newest three wrapped rows, newest bright and older dim", () => {
+  it("shows the newest eleven wrapped rows, newest bright and older dim", () => {
     setTama({ lines: eight, nLines: 8, lineGen: 0 });
     drawHUD();
-    expect(fake.texts).toHaveLength(3);
+    expect(fake.texts).toHaveLength(SHOW);
     fake.texts.forEach((t, i) => {
       expect(t.y).toBe(LINE_Y(i));
       expect(t.x).toBe(4);
       expect(t.text.length).toBeLessThanOrEqual(21);
     });
-    // 91-char lines wrap to 5 rows each; the last 3 rows all belong to the newest entry
-    expect(fake.texts.every((t) => t.fg === PAL.text)).toBe(true);
-    expect(fake.texts[2].text).toBe(wrapInto(eight[7], 32, 21).at(-1));
+    // the newest entry's rows are bright and at the bottom; rows from older entries are dim
+    const newestRows = wrapInto(eight[7], 32, 21).length;
+    expect(fake.texts.slice(-newestRows).every((t) => t.fg === PAL.text)).toBe(true);
+    expect(fake.texts.slice(0, SHOW - newestRows).every((t) => t.fg === PAL.textDim)).toBe(true);
+    expect(fake.texts[SHOW - 1].text).toBe(wrapInto(eight[7], 32, 21).at(-1));
+    expect(LINE_Y(0)).toBeGreaterThanOrEqual(144);   // clear of the 2x pet (lowest pixel y=142)
     expectOnPanel(fake);
   });
 
@@ -629,35 +635,37 @@ describe("drawHUD", () => {
     ui.msgScroll = 2;
     drawHUD();
     const rows = fake.texts.filter((t) => t.x === 4);   // the "-2" marker shares the last row's y
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(SHOW);
     expect(rows.every((t) => t.fg === PAL.textDim)).toBe(true);
     expect(find(fake, "-2")).toMatchObject({ x: W - 18, y: H - 10, fg: PAL.body });
     const bottom = fake.texts.map((t) => t.text);
     fake.reset();
     ui.msgScroll = 0;
     drawHUD();
-    expect(fake.texts.map((t) => t.text)).not.toEqual(bottom.slice(0, 3));
+    expect(fake.texts.map((t) => t.text)).not.toEqual(bottom.slice(0, SHOW));
   });
 
   it("clamps an over-scrolled offset to the oldest rows", () => {
-    setTama({ lines: ["a", "b", "c", "d", "e"], nLines: 5, lineGen: 0 });
+    setTama({ lines: sixteen, nLines: 8, lineGen: 0 });
     ui.msgScroll = 30;
     drawHUD();
-    expect(ui.msgScroll).toBe(2);
-    expect(fake.texts.filter((t) => t.x === 4).map((t) => t.text)).toEqual(["a", "b", "c"]);
-    expect(find(fake, "-2")).toBeDefined();
+    expect(ui.msgScroll).toBe(5);
+    const rows = fake.texts.filter((t) => t.x === 4).map((t) => t.text);
+    expect(rows).toHaveLength(SHOW);
+    expect(rows[0]).toBe(wrapInto(sixteen[0], 32, 21)[0]);
+    expect(find(fake, "-5")).toBeDefined();
   });
 
   it("records how far back the transcript can scroll, so B can wrap at the oldest row", () => {
-    setTama({ lines: ["a", "b", "c", "d", "e"], nLines: 5, lineGen: 0 });
+    setTama({ lines: sixteen, nLines: 8, lineGen: 0 });
     drawHUD();
-    expect(ui.hudMaxBack).toBe(2);   // 5 rows, 3 shown
+    expect(ui.hudMaxBack).toBe(5);   // 16 rows, 11 shown
     setTama({ lines: ["a", "b"], nLines: 2, lineGen: 0 });
     drawHUD();
     expect(ui.hudMaxBack).toBe(0);   // everything fits: nothing behind the window
     setTama({ lines: eight, nLines: 8, lineGen: 0 });
     drawHUD();
-    expect(ui.hudMaxBack).toBe(32 - 3);   // the 32-row buffer is full
+    expect(ui.hudMaxBack).toBe(32 - SHOW);   // the 32-row buffer is full
     setTama({ msg: "No Hermes connected", nLines: 0, lines: [], lineGen: 0 });
     drawHUD();
     expect(ui.hudMaxBack).toBe(0);   // status line only
@@ -667,13 +675,13 @@ describe("drawHUD", () => {
     const many = Array.from({ length: 8 }, (_, i) => `${i + 1} ${"word ".repeat(18)}`.trim().slice(0, 91));   // 5 rows each → 40
     setTama({ lines: many, nLines: 8, lineGen: 0 });
     drawHUD();
-    expect(fake.texts).toHaveLength(3);
-    expect(fake.texts.every((t) => t.fg === PAL.text)).toBe(true);   // all rows from the newest entry
-    expect(fake.texts[2].text).toBe(wrapInto(many[7], 32, 21).at(-1));
+    expect(fake.texts).toHaveLength(SHOW);
+    expect(fake.texts.slice(-5).every((t) => t.fg === PAL.text)).toBe(true);   // the newest entry's 5 rows
+    expect(fake.texts[SHOW - 1].text).toBe(wrapInto(many[7], 32, 21).at(-1));
     fake.reset();
     ui.msgScroll = 99;
     drawHUD();
-    expect(ui.msgScroll).toBe(32 - 3);
+    expect(ui.msgScroll).toBe(32 - SHOW);
   });
 
   it("resets scroll and wakes the screen when the transcript changes", () => {

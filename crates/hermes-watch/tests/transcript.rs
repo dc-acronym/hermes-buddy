@@ -3,7 +3,7 @@
 mod common;
 
 use common::*;
-use hermes_watch::{HermesSnapshot, Watcher};
+use hermes_watch::{HermesSnapshot, Watcher, MAX_LINE_CHARS};
 
 fn poll_db(db: &Db) -> HermesSnapshot {
     Watcher::new(Some(db.path.clone())).poll_at(NOW_MS)
@@ -14,7 +14,7 @@ fn assert_stick_safe(s: &HermesSnapshot) {
     for l in &s.lines {
         assert!(l.is_ascii(), "non-ascii line {l:?}");
         assert!(
-            l.chars().count() <= 91,
+            l.chars().count() <= MAX_LINE_CHARS,
             "line too long ({}): {l:?}",
             l.chars().count()
         );
@@ -43,10 +43,10 @@ fn real_dump_transcript() {
     let s = poll_db(&db);
     assert!(s.connected, "{:?}", s.error);
 
-    // Row 337 is long and has an em dash: transliterated, first paragraph line only, cut at 91.
+    // Row 337 is long and has an em dash: transliterated, first paragraph line only (shorter than the cap).
     let r337 = "There's your prompt - you denied the `curl | sh`, and that came back as a hard block (no retry, workflow stops).";
-    let r337: String = r337.chars().take(91).collect();
-    assert_eq!(r337.len(), 91);
+    let r337: String = r337.chars().take(MAX_LINE_CHARS).collect();
+    assert!(r337.len() < MAX_LINE_CHARS);
 
     assert_eq!(
         s.lines,
@@ -170,19 +170,19 @@ fn ascii_sanitising() {
 }
 
 #[test]
-fn long_lines_are_cut_to_91_on_char_boundaries() {
+fn long_lines_are_cut_to_the_cap_on_char_boundaries() {
     let db = Db::new();
     db.session(Sess::new("s"));
     let long = "\u{e9}".repeat(300); // 300 two-byte chars -> 300 '?'
     db.user("s", NOW - 30.0, &long);
     db.assistant("s", NOW - 20.0, &"abcdefghij".repeat(30));
-    // the 91st char lands on a separator: the trailing space is trimmed
+    // the 168th char (24 x "abcdef ") lands on a separator: the trailing space is trimmed
     db.assistant("s", NOW - 10.0, &"abcdef ".repeat(100));
     let s = poll_db(&db);
-    assert_eq!(s.lines[0], format!("> {}", "?".repeat(89)));
-    assert_eq!(s.lines[0].len(), 91);
-    assert_eq!(s.lines[1].len(), 91);
-    assert_eq!(s.lines[2].len(), 90, "{:?}", s.lines[2]);
+    assert_eq!(s.lines[0], format!("> {}", "?".repeat(MAX_LINE_CHARS - 2)));
+    assert_eq!(s.lines[0].len(), MAX_LINE_CHARS);
+    assert_eq!(s.lines[1].len(), MAX_LINE_CHARS);
+    assert_eq!(s.lines[2].len(), MAX_LINE_CHARS - 1, "{:?}", s.lines[2]);
     assert!(s.lines[2].ends_with('f'));
     assert_stick_safe(&s);
 }
@@ -219,7 +219,7 @@ fn huge_content_is_cut_in_sql() {
     db.session(Sess::new("s"));
     db.user("s", NOW - 10.0, &"y".repeat(3_000_000));
     let s = poll_db(&db);
-    assert_eq!(s.lines[0].len(), 91);
+    assert_eq!(s.lines[0].len(), MAX_LINE_CHARS);
 }
 
 #[test]
@@ -570,5 +570,5 @@ fn a_pending_call_with_a_huge_argument_still_gets_its_hint() {
         "{:?}",
         p.hint
     );
-    assert!(p.hint.len() <= 91);
+    assert!(p.hint.len() <= MAX_LINE_CHARS);
 }

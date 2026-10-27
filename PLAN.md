@@ -40,10 +40,10 @@ settings change; v1 is same-machine only.
 
 Menus port as-is with desktop analogues:
 
-- **Menu:** settings · turn off (screen off) · help (Info → BUTTONS) · about (Info → CREDITS) · demo · close
-- **Settings:** brightness (screen brightness filter) · sound (WebAudio beeps) · **hermes** (was bluetooth: opens the db-path overlay) · **on top** (was wifi: always-on-top toggle) · led · transcript · clock rot (auto/port/land; auto = portrait, no IMU) · ascii pet · reset · back
+- **Menu:** settings · turn off (screen off) · help (Info → BUTTONS) · about (Info → last page) · demo · close
+- **Settings:** brightness (screen brightness filter) · sound (WebAudio beeps) · **hermes** (was bluetooth: opens the db-path overlay) · **profile** (new: B cycles default → each named Hermes profile → default) · **on top** (was wifi: always-on-top toggle) · led · transcript · clock rot (auto/port/land; auto = portrait, no IMU) · ascii pet · reset · back
 - **Reset:** delete char · factory reset · back (tap-twice confirm, as original)
-- **Info pages:** ABOUT · BUTTONS (+ old pet how-to) · HERMES (was CLAUDE) · DEVICE (app/OS/uptime) · DATABASE (was BLUETOOTH: db path, last poll, schema) · CREDITS
+- **Info pages:** ABOUT · BUTTONS (+ old pet how-to) · HERMES (was CLAUDE) · DEVICE (app/OS/uptime) · DATABASE (was BLUETOOTH: db path, last poll, schema) · "for v" (was CREDITS)
 - **Pet page:** stats only (mood, fed, energy, level, pets, naps)
 
 ## Hermes data contract
@@ -64,7 +64,7 @@ interface HermesSnapshot {
   tokensToday: number;         // input+output for sessions started since local midnight
   tokensLifetime: number;      // input+output across all sessions (drives level-ups)
   msg: string;                 // ≤23 chars: last_activity_description of newest running session, else "idle"
-  lines: string[];             // ≤8 transcript entries of newest session, each ≤91 chars, oldest first
+  lines: string[];             // ≤8 transcript entries of newest session, each ≤168 chars (8 rows of the 21-col strip), oldest first
   lineGen: number;             // bumps when lines change
   prompt: { id: string; tool: string; hint: string } | null;  // first pending call
   model: string;               // newest session's model, ≤15 chars

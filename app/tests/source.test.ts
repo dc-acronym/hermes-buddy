@@ -106,7 +106,7 @@ describe("live snapshots", () => {
     expect(dataLastSnapshot()).toBe(s);
   });
 
-  it("truncates msg to 23, prompt tool to 19, hint to 43, and lines to 8 x 91", () => {
+  it("truncates msg to 23, prompt tool to 19, hint to 43, and lines to 8 x 168", () => {
     dataInject(
       snap({
         msg: "m".repeat(60),
@@ -121,7 +121,7 @@ describe("live snapshots", () => {
     expect(out.promptId).toBe("x".repeat(30)); // ids are only compared, never drawn
     expect(out.nLines).toBe(8);
     expect(out.lines).toHaveLength(8);
-    expect(out.lines.every((l) => l.length === 91)).toBe(true);
+    expect(out.lines.every((l) => l.length === 168)).toBe(true);
     expect(out.lines[0].startsWith("0z")).toBe(true); // firmware keeps the first 8
   });
 
@@ -352,7 +352,7 @@ describe("demo mode", () => {
         expect(out.promptHint.length).toBeLessThanOrEqual(43);
         expect(out.nLines).toBeGreaterThanOrEqual(3);
         expect(out.lines).toHaveLength(out.nLines);
-        expect(out.lines.every((l) => l.length <= 91)).toBe(true);
+        expect(out.lines.every((l) => l.length <= 168)).toBe(true);
       } else {
         expect([out.promptId, out.promptTool, out.promptHint]).toEqual(["", "", ""]);
       }

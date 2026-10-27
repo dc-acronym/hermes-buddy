@@ -20,6 +20,7 @@ base64 = "0.22"
 dirs = "6"
 hermes-watch = { path = "../../crates/hermes-watch" }
 tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
 
 [dev-dependencies]
 tempfile = "3"

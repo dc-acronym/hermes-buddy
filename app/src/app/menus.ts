@@ -3,11 +3,15 @@
 //
 // Desktop mapping (PLAN.md): settings "bluetooth" → hermes (db-path overlay), "wifi" →
 // on top (always-on-top), "turn off" → screen off instead of AXP power-off, and a
-// factory reset reloads the page instead of ESP.restart().
+// factory reset reloads the page instead of ESP.restart(). "profile" (new) cycles the
+// watched Hermes profile: default → each named profile → default.
 
 import type { Palette } from "../data/types";
 import { TFT_GREEN } from "../hw/tft";
-import { millis, openDbSettings, setAlwaysOnTop, deleteCharacter, factoryReset } from "../hw/platform";
+import {
+  millis, openDbSettings, setAlwaysOnTop, deleteCharacter, factoryReset, listProfiles, setDbPath,
+  type HermesProfile,
+} from "../hw/platform";
 import { dataDemo, dataSetDemo, dataConnected } from "../data/source";
 import { characterPalette, characterInvalidate, characterInit } from "../character";
 import {
@@ -21,7 +25,7 @@ import { applyBrightness, applyDisplayMode, beepIf, clearOverlay } from "./loop"
 
 export const menuItems = ["settings", "turn off", "help", "about", "demo", "close"] as const;
 export const MENU_N = menuItems.length;
-export const settingsItems = ["brightness", "sound", "hermes", "on top", "led", "transcript", "clock rot", "ascii pet", "reset", "back"] as const;
+export const settingsItems = ["brightness", "sound", "hermes", "profile", "on top", "led", "transcript", "clock rot", "ascii pet", "reset", "back"] as const;
 export const SETTINGS_N = settingsItems.length;
 export const resetItems = ["delete char", "factory reset", "back"] as const;
 export const RESET_N = resetItems.length;
@@ -51,36 +55,80 @@ export function nextPet(): void {
   if (ui.buddyMode) buddyInvalidate();
 }
 
+// ── Hermes profiles (Settings → profile) ──
+// The watcher reads one state.db; each Hermes profile has its own. The list comes from the
+// shell (default first); the current one is whichever path the last snapshot came from.
+
+let profileChoice: HermesProfile | null = null;   // picked, snapshot not caught up yet
+let knownProfiles: HermesProfile[] = [];          // last list from the shell
+
+function profileOf(path: string, list: readonly HermesProfile[]): HermesProfile | null {
+  return list.find((p) => p.path === path) ?? null;
+}
+
+/** Re-read the profile list (opening Settings does this so the label can name the db). */
+export async function refreshProfiles(): Promise<HermesProfile[]> {
+  knownProfiles = await listProfiles();
+  return knownProfiles;
+}
+
+/** Name shown in the settings row: the profile being watched (or just picked). */
+export function profileLabel(): string {
+  if (dataDemo()) return "demo";
+  const path = ui.tama.dbPath;
+  if (profileChoice && profileChoice.path !== path) return profileChoice.name;
+  profileChoice = null;
+  const known = profileOf(path, knownProfiles);
+  if (known) return known.name;
+  const m = /[\\/]profiles[\\/]([^\\/]+)[\\/]state\.db$/.exec(path);
+  if (m) return m[1];
+  if (!path) return "-";
+  return knownProfiles.length > 0 ? "custom" : "default";
+}
+
+/** B on "profile": default → each named profile → default. A custom db path goes to default. */
+export async function nextProfile(): Promise<void> {
+  const list = await refreshProfiles();
+  if (list.length === 0) return;
+  const cur = profileOf(profileChoice?.path ?? ui.tama.dbPath, list);
+  const next = list[cur ? (list.indexOf(cur) + 1) % list.length : 0];
+  profileChoice = next;
+  await setDbPath(next.name === "default" ? null : next.path);
+}
+
 export function applySetting(idx: number): void {
   const s = settings();
-  switch (idx) {
-    case 0:
+  switch (settingsItems[idx]) {
+    case "brightness":
       ui.brightLevel = (ui.brightLevel + 1) % 5;
       s.bright = ui.brightLevel;
       settingsSave();
       applyBrightness();
       return;
-    case 1: s.sound = !s.sound; break;
-    case 2:
+    case "sound": s.sound = !s.sound; break;
+    case "hermes":
       // Opens the db-path overlay; nothing to toggle here.
       openDbSettings();
       return;
-    case 3:
+    case "profile":
+      void nextProfile();
+      return;
+    case "on top":
       s.onTop = !s.onTop;
       setAlwaysOnTop(s.onTop);
       break;
-    case 4: s.led = !s.led; break;
-    case 5:
+    case "led": s.led = !s.led; break;
+    case "transcript":
       s.hud = !s.hud;
       clearOverlay();   // nothing repaints the transcript strip once it's off
       break;
-    case 6: s.clockRot = (s.clockRot + 1) % 3; break;
-    case 7: nextPet(); return;
-    case 8:
+    case "clock rot": s.clockRot = (s.clockRot + 1) % 3; break;
+    case "ascii pet": nextPet(); return;
+    case "reset":
       ui.resetOpen = true; ui.resetSel = 0; ui.resetConfirmIdx = 0xff;
       clearOverlay();   // the reset panel is shorter than the settings panel under it
       return;
-    case 9: ui.settingsOpen = false; clearOverlay(); return;
+    case "back": ui.settingsOpen = false; clearOverlay(); return;
   }
   settingsSave();
 }
@@ -147,26 +195,36 @@ export function drawSettings(): void {
   spr.drawRoundRect(mx, my, mw, mh, 4, p.textDim);
   spr.setTextSize(1);
   const s = settings();
-  // Row 2 (hermes) isn't a toggle; its value shows whether the db is linked.
-  const vals = [s.sound, dataConnected(), s.onTop, s.led, s.hud];
+  // "hermes" isn't a toggle; its value shows whether the db is linked.
+  const toggles: Partial<Record<(typeof settingsItems)[number], boolean>> = {
+    sound: s.sound, hermes: dataConnected(), "on top": s.onTop, led: s.led, transcript: s.hud,
+  };
   for (let i = 0; i < SETTINGS_N; i++) {
+    const item = settingsItems[i];
     const sel = (i === ui.settingsSel);
+    const y = my + 8 + i * 14;
     spr.setTextColor(sel ? p.text : p.textDim, PANEL);
-    spr.setCursor(mx + 6, my + 8 + i * 14);
+    spr.setCursor(mx + 6, y);
     spr.print(sel ? "> " : "  ");
-    spr.print(settingsItems[i]);
-    spr.setCursor(mx + mw - 36, my + 8 + i * 14);
+    spr.print(item);
+    spr.setCursor(mx + mw - 36, y);
     spr.setTextColor(p.textDim, PANEL);
-    if (i === 0) {
+    if (item === "brightness") {
       spr.printf("%u/4", ui.brightLevel);
-    } else if (i >= 1 && i <= 5) {
-      spr.setTextColor(vals[i - 1] ? TFT_GREEN : p.textDim, PANEL);
-      if (i === 2) spr.print(vals[i - 1] ? "link" : "none");
-      else spr.print(vals[i - 1] ? " on" : "off");
-    } else if (i === 6) {
+    } else if (item in toggles) {
+      const on = toggles[item] === true;
+      spr.setTextColor(on ? TFT_GREEN : p.textDim, PANEL);
+      if (item === "hermes") spr.print(on ? "link" : "none");
+      else spr.print(on ? " on" : "off");
+    } else if (item === "profile") {
+      // Up to 8 chars, right-aligned (the label ends at mx+60).
+      const name = profileLabel().slice(0, 8);
+      spr.setCursor(mx + mw - 4 - name.length * 6, y);
+      spr.print(name);
+    } else if (item === "clock rot") {
       const RN = ["auto", "port", "land"];
       spr.print(RN[s.clockRot]);
-    } else if (i === 7) {
+    } else if (item === "ascii pet") {
       const total = buddySpeciesCount() + (ui.gifAvailable ? 1 : 0);
       const pos = ui.buddyMode ? buddySpeciesIdx() + 1 : total;
       spr.printf("%u/%u", pos, total);
@@ -196,7 +254,10 @@ export function drawReset(): void {
 
 export function menuConfirm(): void {
   switch (ui.menuSel) {
-    case 0: ui.settingsOpen = true; ui.menuOpen = false; ui.settingsSel = 0; break;
+    case 0:
+      ui.settingsOpen = true; ui.menuOpen = false; ui.settingsSel = 0;
+      refreshProfiles().catch(() => {});   // so the profile row can name the db being watched
+      break;
     case 1:
       // No AXP to cut power: screen off (any button or the power button wakes it).
       ui.menuOpen = false;

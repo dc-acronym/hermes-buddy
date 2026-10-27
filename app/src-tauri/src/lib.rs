@@ -4,6 +4,7 @@
 mod character;
 mod commands;
 mod poller;
+mod profiles;
 mod shake;
 mod state;
 mod storage;
@@ -23,6 +24,20 @@ pub const CHARACTER_INSTALLED_EVENT: &str = "buddy://character-installed";
 /// Extra (not in the frozen contract): the message when a dropped pack folder was rejected.
 pub const CHARACTER_ERROR_EVENT: &str = "buddy://character-error";
 
+/// What the window-state plugin remembers between launches: where the stick sat and how big
+/// the user made it (the window is resizable; the bezel scales to fit).
+const WINDOW_STATE: tauri_plugin_window_state::StateFlags =
+    tauri_plugin_window_state::StateFlags::SIZE
+        .union(tauri_plugin_window_state::StateFlags::POSITION);
+
+/// Quit from the tray or the UI. Closing only hides the window, so save its size and position
+/// here rather than relying on a close event.
+pub fn quit(app: &tauri::AppHandle) {
+    use tauri_plugin_window_state::AppHandleExt;
+    let _ = app.save_window_state(WINDOW_STATE);
+    app.exit(0);
+}
+
 pub fn run() {
     tauri::Builder::default()
         // Registered first, as the plugin requires. A second launch hands over to this instance
@@ -30,6 +45,11 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             tray::reveal_main_window(app);
         }))
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(WINDOW_STATE)
+                .build(),
+        )
         .setup(|app| {
             let handle = app.handle().clone();
             let config = storage::read_config(&state::config_dir(&handle)?);
@@ -65,6 +85,7 @@ pub fn run() {
             commands::save_json,
             commands::get_config,
             commands::set_db_path,
+            commands::list_profiles,
             commands::poll_now,
             commands::set_always_on_top,
             commands::hide_window,

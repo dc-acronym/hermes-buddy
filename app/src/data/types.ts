@@ -60,7 +60,7 @@ export interface TamaState {
   lastUpdated: number; // millis() of last snapshot applied
   msg: string; // <= 23 chars
   connected: boolean;
-  lines: string[]; // <= 8 entries, each <= 91 chars
+  lines: string[]; // <= 8 entries, each <= 168 chars (8 transcript rows)
   nLines: number;
   lineGen: number;
   promptId: string; // "" = no pending prompt
