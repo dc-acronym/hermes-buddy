@@ -72,7 +72,7 @@ jobs:
             ("can't be opened" or "is damaged"). Clear the quarantine flag once:
 
             ```bash
-            xattr -dr com.apple.quarantine "/Applications/Hermes Buddy.app"
+            /usr/bin/xattr -dr com.apple.quarantine "/Applications/Hermes Buddy.app"
             ```
 
             Or: open it once, then System Settings → Privacy & Security → **Open Anyway**.

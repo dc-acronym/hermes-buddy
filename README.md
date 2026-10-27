@@ -29,8 +29,12 @@ You need Hermes on the **same machine** (v1 has no network mode).
 2. Clear the quarantine flag once, in Terminal:
 
    ```bash
-   xattr -dr com.apple.quarantine "/Applications/Hermes Buddy.app"
+   /usr/bin/xattr -dr com.apple.quarantine "/Applications/Hermes Buddy.app"
    ```
+
+   Use the full `/usr/bin/xattr` path: if Python's `xattr` package (pip, Homebrew, conda) is
+   earlier on your PATH, plain `xattr` is that one, which rejects `-r` with *"option -r not
+   recognized"*.
 
 3. Open it like any app.
 
