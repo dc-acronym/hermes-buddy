@@ -45,7 +45,7 @@ account). Anything you download gets a `com.apple.quarantine` flag, and Gatekeep
 un-notarized apps that carry it. Depending on your macOS version you'll see *"Hermes Buddy can't be
 opened because Apple cannot check it for malicious software"*, *"…Apple could not verify…"*, or
 *"Hermes Buddy is damaged and can't be opened. You should move it to the Trash."* It isn't damaged:
-all three are the quarantine flag, and the `xattr` command above removes it for this app only.
+all three are the quarantine flag, and the `/usr/bin/xattr` command above removes it for this app only.
 
 If you'd rather not use Terminal:
 
@@ -55,7 +55,7 @@ If you'd rather not use Terminal:
 - **macOS 14 and earlier:** right-click (or Control-click) the app in Applications → **Open** →
   **Open**.
 
-If you still get *"is damaged"* after that, it's the quarantine flag; use the `xattr` command. Each
+If you still get *"is damaged"* after that, it's the quarantine flag; use the `/usr/bin/xattr` command. Each
 new version you download needs the same one-time step.
 
 ## Build from source
