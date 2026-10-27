@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Hermes Buddy",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "dev.hermes-buddy.app",
   "build": {
     "frontendDist": "../dist",
