@@ -1,0 +1,84 @@
+# macOS DMG release.
+#
+# Push a tag like v0.1.0 → builds a universal (Apple Silicon + Intel) DMG and publishes it as a
+# GitHub release. Run it by hand (Actions → Release (macOS DMG) → Run workflow) to just build the
+# DMG and download it from the run's artifacts, without making a release.
+#
+# The app is ad-hoc signed (APPLE_SIGNING_IDENTITY "-"), not Developer ID signed or notarized, so
+# first launch needs the quarantine step in the README.
+name: Release (macOS DMG)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Unit tests
+        working-directory: app
+        run: npm test
+
+      - name: Build DMG (and publish the release on tags)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: "-"
+        with:
+          projectPath: app
+          args: --target universal-apple-darwin --bundles dmg
+          # Only tag pushes create a release; a manual run just builds.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: Hermes Buddy ${{ github.ref_name }}
+          releaseDraft: false
+          prerelease: false
+          releaseBody: |
+            Universal macOS build (Apple Silicon + Intel). Download the `.dmg`, open it, drag **Hermes Buddy** to Applications.
+
+            It isn't signed with an Apple Developer ID or notarized, so macOS blocks the first launch
+            ("can't be opened" or "is damaged"). Clear the quarantine flag once:
+
+            ```bash
+            xattr -dr com.apple.quarantine "/Applications/Hermes Buddy.app"
+            ```
+
+            Or: open it once, then System Settings → Privacy & Security → **Open Anyway**.
+            Full notes in the README.
+
+      - name: Upload DMG artifact (manual runs)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-buddy-macos-dmg
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error

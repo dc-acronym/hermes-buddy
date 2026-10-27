@@ -19,7 +19,42 @@ no Hermes config change, and it never sends anything to Hermes.
 | gets dizzy | you shake the window |
 | shows hearts | you pet it (B on the pet screen) |
 
-## Build and run
+## Install on a Mac
+
+You need Hermes on the **same machine** (v1 has no network mode).
+
+1. Download `Hermes Buddy_<version>_universal.dmg` from
+   [Releases](https://github.com/dc-acronym/hermes-buddy/releases) (one build for Apple Silicon and
+   Intel). Open it and drag **Hermes Buddy** into Applications.
+2. Clear the quarantine flag once, in Terminal:
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Hermes Buddy.app"
+   ```
+
+3. Open it like any app.
+
+### Why step 2, and the other ways around it
+
+The app isn't signed with an Apple Developer ID or notarized by Apple (that needs a paid developer
+account). Anything you download gets a `com.apple.quarantine` flag, and Gatekeeper refuses to launch
+un-notarized apps that carry it. Depending on your macOS version you'll see *"Hermes Buddy can't be
+opened because Apple cannot check it for malicious software"*, *"…Apple could not verify…"*, or
+*"Hermes Buddy is damaged and can't be opened. You should move it to the Trash."* It isn't damaged:
+all three are the quarantine flag, and the `xattr` command above removes it for this app only.
+
+If you'd rather not use Terminal:
+
+- **macOS 15 Sequoia and later:** open the app once and dismiss the warning, then go to
+  **System Settings → Privacy & Security**, scroll down to *"Hermes Buddy was blocked…"*, click
+  **Open Anyway**, and confirm with your password.
+- **macOS 14 and earlier:** right-click (or Control-click) the app in Applications → **Open** →
+  **Open**.
+
+If you still get *"is damaged"* after that, it's the quarantine flag; use the `xattr` command. Each
+new version you download needs the same one-time step.
+
+## Build from source
 
 You need Hermes on the **same machine** (v1 has no network mode), plus:
 
@@ -34,8 +69,21 @@ npm run tauri dev        # run it
 npm run tauri build      # make an installer: target/release/bundle/
 ```
 
-The builds are **unsigned**. On macOS, the first time: right-click the app → Open → Open (or
-`xattr -cr "/Applications/Hermes Buddy.app"`). On Windows: SmartScreen → More info → Run anyway.
+The builds are **unsigned**. On macOS, see [the quarantine step](#why-step-2-and-the-other-ways-around-it).
+On Windows: SmartScreen → More info → Run anyway.
+
+### Releasing
+
+`.github/workflows/release.yml` builds the universal macOS DMG on GitHub's macOS runners.
+
+- **Publish a release:** bump `version` in `app/package.json`, `app/src-tauri/tauri.conf.json` and
+  the root `Cargo.toml` (they should match the tag), commit, then `git tag v0.1.1 && git push origin v0.1.1`.
+  The workflow runs the unit tests, builds the DMG and publishes it on the Releases page.
+- **Just build one:** Actions → *Release (macOS DMG)* → **Run workflow**. The DMG is attached to the
+  run as the `hermes-buddy-macos-dmg` artifact; no release is created.
+
+The repo is private, so whoever downloads the DMG needs access to it (add them as a collaborator), or
+make the repo public.
 
 ## Controls
 
