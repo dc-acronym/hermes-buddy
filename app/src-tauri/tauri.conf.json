@@ -21,6 +21,7 @@
         "decorations": false,
         "maximizable": false,
         "alwaysOnTop": true,
+        "acceptFirstMouse": true,
         "skipTaskbar": false,
         "dragDropEnabled": true,
         "minWidth": 160,
